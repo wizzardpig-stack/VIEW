@@ -1,0 +1,2066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#050607" />
+<title>VIEW V1.2 iPhone RC</title>
+<style>
+  :root {
+    --fg: rgba(255,255,255,.94);
+    --muted: rgba(255,255,255,.56);
+    --hair: rgba(255,255,255,.18);
+    --ui-shadow: 0 1px 18px rgba(0,0,0,.55);
+  }
+  * { box-sizing: border-box; }
+  html, body { width:100%; height:100%; min-height:100%; margin:0; background:#050607; overflow:hidden; overscroll-behavior:none; }
+  @supports (height:100dvh) { html, body { height:100dvh; min-height:100dvh; } }
+  body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  button { font: inherit; color: inherit; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
+  button:focus-visible { outline: 1px solid rgba(255,255,255,.8); outline-offset: 4px; }
+
+  #app { width:100%; height:100%; min-height:100%; position:relative; background:#050607; }
+  @supports (height:100dvh) { #app { height:100dvh; min-height:100dvh; } }
+
+  /* WORLD SELECTOR */
+  #selector {
+    position:absolute; inset:0; z-index:20; display:grid; grid-template-columns:repeat(4,1fr);
+    background:#050607; transition:opacity 900ms ease, visibility 900ms ease;
+  }
+  #selector.hidden { opacity:0; visibility:hidden; pointer-events:none; }
+  .selector-brand {
+    position:absolute; z-index:8; left:clamp(18px,3vw,48px); top:clamp(18px,3vw,40px);
+    font-size:12px; font-weight:560; letter-spacing:.14em; text-transform:uppercase;
+    text-shadow:var(--ui-shadow); pointer-events:none;
+  }
+  .selector-sub {
+    position:absolute; z-index:8; left:clamp(18px,3vw,48px); bottom:clamp(18px,3vw,40px);
+    font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:rgba(255,255,255,.55);
+    text-shadow:var(--ui-shadow); pointer-events:none;
+  }
+  .world-tile {
+    position:relative; border:0; padding:0; overflow:hidden; cursor:pointer; background:#111; isolation:isolate;
+    border-right:1px solid rgba(255,255,255,.10);
+  }
+  .world-tile:last-child { border-right:0; }
+  .world-tile::before {
+    content:""; position:absolute; inset:-4%; z-index:-1; background-image:var(--tile-img);
+    background-position:center; background-size:cover; transform:scale(1.04);
+    transition:transform 4s cubic-bezier(.16,.84,.2,1), filter 800ms ease;
+    animation:selectorDrift 18s ease-in-out infinite alternate;
+  }
+  .world-tile::after {
+    content:""; position:absolute; inset:0; background:linear-gradient(to top, rgba(0,0,0,.58), rgba(0,0,0,.04) 55%, rgba(0,0,0,.12));
+    transition:background 600ms ease;
+  }
+  .world-tile:hover::before, .world-tile:focus-visible::before { transform:scale(1.10); filter:saturate(1.08) contrast(1.03); }
+  .world-tile:hover::after { background:linear-gradient(to top, rgba(0,0,0,.48), rgba(0,0,0,.01) 58%, rgba(0,0,0,.06)); }
+  .tile-label {
+    position:absolute; left:clamp(14px,2vw,28px); bottom:clamp(18px,3vw,42px); z-index:4;
+    font-size:clamp(11px,1vw,14px); letter-spacing:.08em; font-weight:520; text-transform:uppercase;
+    text-shadow:var(--ui-shadow); opacity:.75; transform:translateY(4px); transition:opacity 450ms ease, transform 450ms ease;
+  }
+  .world-tile:hover .tile-label, .world-tile:focus-visible .tile-label { opacity:1; transform:translateY(0); }
+  @keyframes selectorDrift { from{ transform:scale(1.045) translate3d(-.8%,0,0);} to{ transform:scale(1.085) translate3d(.8%,-.6%,0);} }
+
+  /* ENVIRONMENT */
+  #viewer { position:absolute; inset:0; z-index:1; overflow:hidden; background:#060708; animation:metaFloat 18s ease-in-out infinite alternate; transform-origin:center center; }
+  body.flow-active #viewer { filter:url(#metaFluidDisplace); animation:hyperFloat 4.8s ease-in-out infinite alternate; }
+  body.flow-active #gl, body.flow-active #camWrap { animation:hyperBreath 3.6s ease-in-out infinite alternate; }
+  body.flow-active #overlayFx::before { opacity:.16; animation:hyperPlasma 4.4s ease-in-out infinite alternate; }
+  body.flow-active #overlayFx::after { opacity:.11; animation:hyperPlasma2 5.2s ease-in-out infinite alternate; }
+  #gl { position:absolute; inset:0; width:100%; height:100%; display:block; transform-origin:center center; animation:metaBreath 14s ease-in-out infinite alternate; }
+  body.fallback #gl { display:none; }
+
+  /* CSS fallback compositor (only used when WebGL is unavailable) */
+  #camWrap { position:absolute; inset:0; display:none; will-change:transform; transform-origin:center center; animation:metaBreath 14s ease-in-out infinite alternate; }
+  body.fallback #camWrap { display:block; }
+  .scene-layer { position:absolute; inset:-4%; background-size:cover; background-position:center; will-change:transform, opacity, filter; }
+  #layerA { opacity:1; }
+  .b-band { position:absolute; inset:-4%; background-size:cover; background-position:center; opacity:0; }
+  #bFar  { -webkit-mask-image:linear-gradient(to bottom, #000 0%, #000 34%, transparent 56%); mask-image:linear-gradient(to bottom, #000 0%, #000 34%, transparent 56%); }
+  #bMid  { -webkit-mask-image:linear-gradient(to bottom, transparent 22%, #000 44%, #000 66%, transparent 84%); mask-image:linear-gradient(to bottom, transparent 22%, #000 44%, #000 66%, transparent 84%); }
+  #bNear { -webkit-mask-image:linear-gradient(to bottom, transparent 52%, #000 76%, #000 100%); mask-image:linear-gradient(to bottom, transparent 52%, #000 76%, #000 100%); }
+
+  #overlayFx { position:absolute; inset:0; pointer-events:none; z-index:3; overflow:hidden; display:block; mix-blend-mode:screen; }
+  #overlayFx::before, #overlayFx::after { content:""; position:absolute; inset:-12%; transition:opacity 1600ms ease; }
+  #overlayFx::before { opacity:.08; background:radial-gradient(circle at 18% 28%, rgba(255,255,255,.12), transparent 18%), radial-gradient(circle at 76% 24%, rgba(129,191,255,.08), transparent 20%), radial-gradient(circle at 52% 72%, rgba(255,176,120,.06), transparent 22%), linear-gradient(135deg, rgba(255,255,255,.03), transparent 40%); filter:blur(30px); animation:metaPlasma 19s ease-in-out infinite alternate; }
+  #overlayFx::after { opacity:.055; background:radial-gradient(circle at 30% 65%, rgba(140,165,255,.16), transparent 20%), radial-gradient(circle at 78% 70%, rgba(255,255,255,.12), transparent 18%), radial-gradient(circle at 50% 35%, rgba(255,130,205,.08), transparent 18%); filter:blur(42px); mix-blend-mode:soft-light; animation:metaPlasma2 23s ease-in-out infinite alternate; }
+  body.fallback[data-world="veil"] #overlayFx::before {
+    opacity:.23; background:
+      radial-gradient(ellipse at 25% 50%, rgba(255,255,255,.24), transparent 34%),
+      radial-gradient(ellipse at 72% 36%, rgba(255,255,255,.18), transparent 33%),
+      linear-gradient(120deg, rgba(255,255,255,.08), transparent 40%);
+    filter:blur(34px); animation:fogFloat 26s ease-in-out infinite alternate;
+  }
+  body.fallback[data-world="abyss"] #overlayFx::before {
+    opacity:.18; background:
+      radial-gradient(circle at 24% 10%, rgba(123,216,255,.36), transparent 16%),
+      radial-gradient(circle at 78% 5%, rgba(117,205,255,.18), transparent 18%),
+      repeating-linear-gradient(98deg, rgba(160,225,255,.06) 0 1px, transparent 1px 60px);
+    filter:blur(18px); animation:caustic 18s ease-in-out infinite alternate;
+  }
+  body.fallback[data-world="orbit"] #overlayFx::after {
+    opacity:.36; background:radial-gradient(circle at 50% 45%, transparent 35%, rgba(0,0,0,.48) 100%);
+  }
+  body.fallback[data-world="beach"] #overlayFx::after {
+    opacity:.16; background:linear-gradient(to top, rgba(255,151,79,.18), transparent 42%);
+    mix-blend-mode:screen;
+  }
+  @keyframes fogFloat { from{ transform:translate3d(-2%,1%,0) scale(1.02);} to{ transform:translate3d(3%,-2%,0) scale(1.08);} }
+  @keyframes caustic { from{ transform:translate3d(-2%,-1%,0) rotate(-1deg);} to{ transform:translate3d(3%,2%,0) rotate(1deg);} }
+  @keyframes metaFloat { from{ transform:scale(1.012) translate3d(-0.45%, -0.28%, 0);} to{ transform:scale(1.026) translate3d(0.55%, 0.42%, 0);} }
+  @keyframes metaBreath { from{ transform:scale(1.015) rotate(-0.18deg);} to{ transform:scale(1.032) rotate(0.22deg);} }
+  @keyframes metaPlasma { from{ transform:translate3d(-1.5%,0.8%,0) rotate(-1.1deg) scale(1.02);} to{ transform:translate3d(1.8%,-1.2%,0) rotate(1.25deg) scale(1.08);} }
+  @keyframes metaPlasma2 { from{ transform:translate3d(1.2%,-0.6%,0) rotate(0.8deg) scale(1.03);} to{ transform:translate3d(-1.6%,1.4%,0) rotate(-1deg) scale(1.09);} }
+  @keyframes hyperFloat { 0%{ transform:scale(1.035) translate3d(-.8%,-.45%,0) rotate(-.22deg);} 50%{ transform:scale(1.05) translate3d(.35%,.55%,0) rotate(.14deg);} 100%{ transform:scale(1.04) translate3d(.85%,-.15%,0) rotate(.26deg);} }
+  @keyframes hyperBreath { 0%{ transform:scale(1.025) rotate(-.28deg);} 45%{ transform:scale(1.055) rotate(.18deg);} 100%{ transform:scale(1.035) rotate(.31deg);} }
+  @keyframes hyperPlasma { 0%{ transform:translate3d(-4%,2%,0) rotate(-3deg) scale(1.08);} 50%{ transform:translate3d(2%,-3%,0) rotate(1deg) scale(1.16);} 100%{ transform:translate3d(4%,2%,0) rotate(3deg) scale(1.11);} }
+  @keyframes hyperPlasma2 { 0%{ transform:translate3d(3%,-2%,0) rotate(2deg) scale(1.12);} 50%{ transform:translate3d(-3%,3%,0) rotate(-2deg) scale(1.18);} 100%{ transform:translate3d(-1%,-3%,0) rotate(1deg) scale(1.10);} }
+
+  .vignette { position:absolute; inset:0; z-index:4; pointer-events:none; background:radial-gradient(circle at center, transparent 62%, rgba(0,0,0,.18) 100%); }
+
+  /* UI */
+  #hud { position:absolute; inset:0; z-index:10; pointer-events:none; transition:opacity 500ms ease; }
+  #hud.ui-hidden { opacity:0; }
+  .hud-item { pointer-events:auto; position:absolute; text-shadow:var(--ui-shadow); }
+  #worldName { left:calc(env(safe-area-inset-left) + clamp(18px,3vw,44px)); top:calc(env(safe-area-inset-top) + clamp(18px,3vw,38px)); font-size:11px; letter-spacing:.12em; font-weight:540; text-transform:uppercase; }
+  #sceneCount { right:calc(env(safe-area-inset-right) + clamp(18px,3vw,44px)); bottom:calc(env(safe-area-inset-bottom) + clamp(18px,3vw,36px)); font-size:10px; letter-spacing:.12em; color:var(--muted); }
+  #status { left:50%; top:calc(env(safe-area-inset-top) + clamp(18px,3vw,38px)); transform:translateX(-50%); font-size:9px; letter-spacing:.14em; color:rgba(255,255,255,.56); text-transform:uppercase; }
+  .hud-button { border:0; background:none; padding:8px; min-width:44px; min-height:44px; display:grid; place-items:center; cursor:pointer; opacity:.82; transition:opacity 180ms ease, transform 180ms ease; }
+  .hud-button:hover { opacity:1; transform:scale(1.04); }
+  #soundBtn { right:calc(env(safe-area-inset-right) + clamp(10px,2.3vw,32px)); top:calc(env(safe-area-inset-top) + clamp(8px,2.4vw,26px)); }
+  #pauseBtn { left:50%; bottom:calc(env(safe-area-inset-bottom) + clamp(8px,2.4vw,24px)); transform:translateX(-50%); }
+  #pauseBtn:hover { transform:translateX(-50%) scale(1.04); }
+  #worldBtn { left:calc(env(safe-area-inset-left) + clamp(10px,2.3vw,32px)); bottom:calc(env(safe-area-inset-bottom) + clamp(8px,2.4vw,24px)); }
+  #flowBtn { left:calc(env(safe-area-inset-left) + clamp(10px,2.3vw,32px) + 48px); bottom:calc(env(safe-area-inset-bottom) + clamp(8px,2.4vw,24px)); }
+  .hud-button.active { opacity:1; }
+  .glyph { width:20px; height:20px; display:block; opacity:.9; }
+  .glyph svg { width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:1.4; stroke-linecap:round; stroke-linejoin:round; }
+
+  #loading {
+    position:absolute; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; background:#050607;
+    transition:opacity 900ms ease, visibility 900ms ease; pointer-events:none;
+  }
+  #loading.hidden { opacity:0; visibility:hidden; }
+  .loading-mark { font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:rgba(255,255,255,.66); animation:pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:.28; } }
+
+  #hint { position:absolute; z-index:11; left:50%; bottom:calc(env(safe-area-inset-bottom) + 72px); transform:translateX(-50%); font-size:9px; letter-spacing:.08em; color:rgba(255,255,255,.52); text-shadow:var(--ui-shadow); opacity:0; transition:opacity 500ms ease; pointer-events:none; white-space:nowrap; }
+  #hint.show { opacity:1; }
+
+  /* DEV CONTROLS */
+  #devToggle {
+    position:absolute; z-index:41; right:14px; bottom:14px; border:1px solid rgba(255,255,255,.22);
+    background:rgba(5,6,7,.72); color:rgba(255,255,255,.72); padding:7px 9px; cursor:pointer;
+    font-size:9px; letter-spacing:.12em; text-transform:uppercase; backdrop-filter:blur(10px);
+    opacity:.35; transition:opacity 180ms ease;
+  }
+  #devToggle:hover { opacity:1; }
+  body.prod #devToggle { display:none; }
+  #devPanel {
+    position:absolute; z-index:40; right:14px; bottom:48px; width:min(360px,calc(100vw - 28px));
+    max-height:calc(100vh - 80px); overflow-y:auto; overscroll-behavior:contain;
+    background:rgba(5,6,7,.9); border:1px solid rgba(255,255,255,.18); backdrop-filter:blur(18px);
+    padding:14px; font-size:11px; box-shadow:0 16px 60px rgba(0,0,0,.45);
+    transition:opacity 180ms ease, transform 180ms ease, visibility 180ms ease;
+  }
+  #devPanel.dev-hidden { opacity:0; visibility:hidden; pointer-events:none; transform:translateY(8px); }
+  .dev-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .dev-title { font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:rgba(255,255,255,.7); }
+  .dev-readout { font-variant-numeric:tabular-nums; color:rgba(255,255,255,.48); font-size:9px; }
+  .dev-row { display:grid; grid-template-columns:74px 1fr; gap:10px; align-items:center; margin-top:8px; }
+  .dev-row label { color:rgba(255,255,255,.48); font-size:9px; letter-spacing:.08em; text-transform:uppercase; }
+  .dev-buttons { display:flex; gap:5px; flex-wrap:wrap; }
+  .dev-btn, .dev-select {
+    border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.035); color:rgba(255,255,255,.86);
+    padding:6px 8px; cursor:pointer; font-size:10px; border-radius:0;
+  }
+  .dev-btn:hover, .dev-btn.active { background:rgba(255,255,255,.12); border-color:rgba(255,255,255,.36); }
+  .dev-btn.warn { border-color:rgba(255,150,110,.55); color:rgba(255,190,160,.95); }
+  .dev-select { width:100%; outline:none; }
+  #devPanel input[type=range] { width:100%; accent-color:white; }
+  .dev-sep { margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,.10); }
+  .dev-shortcuts { margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,.10); color:rgba(255,255,255,.38); font-size:9px; line-height:1.6; }
+  .dev-stats { font-variant-numeric:tabular-nums; color:rgba(255,255,255,.55); font-size:9px; line-height:1.65; white-space:pre-wrap; }
+  .dev-slider { display:grid; grid-template-columns:96px 1fr 44px; gap:8px; align-items:center; margin-top:6px; }
+  .dev-slider span:first-child { color:rgba(255,255,255,.44); font-size:9px; letter-spacing:.06em; text-transform:uppercase; }
+  .dev-slider .val { color:rgba(255,255,255,.62); font-size:9px; text-align:right; font-variant-numeric:tabular-nums; }
+  .chk { display:flex; align-items:center; gap:5px; color:rgba(255,255,255,.62); font-size:9px; letter-spacing:.05em; text-transform:uppercase; cursor:pointer; }
+  .chk input { accent-color:white; }
+  .chk-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px 8px; margin-top:6px; }
+
+  @media (max-width: 760px) {
+    #selector { grid-template-columns:1fr; grid-template-rows:repeat(4,1fr); }
+    .world-tile { border-right:0; border-bottom:1px solid rgba(255,255,255,.10); }
+    .world-tile:last-child { border-bottom:0; }
+    .world-tile::before { inset:-12% -3%; }
+    .tile-label { left:20px; bottom:16px; opacity:.92; }
+    .selector-brand { top:16px; left:18px; mix-blend-mode:difference; }
+    .selector-sub { display:none; }
+    #status { display:none; }
+    #hint { bottom:calc(env(safe-area-inset-bottom) + 64px); }
+    #devPanel { left:10px; right:10px; width:auto; bottom:calc(env(safe-area-inset-bottom) + 52px); max-height:calc(100dvh - 92px); }
+    .selector-brand { top:calc(env(safe-area-inset-top) + 12px); left:calc(env(safe-area-inset-left) + 18px); }
+    .world-tile:last-of-type .tile-label { bottom:calc(env(safe-area-inset-bottom) + 14px); }
+    body.flow-active #viewer { filter:none; }
+    #overlayFx::before { filter:blur(22px); }
+    #overlayFx::after { filter:blur(28px); }
+  }
+  @media (max-height:500px) and (pointer:coarse) {
+    .selector-brand { top:calc(env(safe-area-inset-top) + 10px); left:calc(env(safe-area-inset-left) + 14px); }
+    .selector-sub,#status { display:none; }
+    #worldName { top:calc(env(safe-area-inset-top) + 10px); }
+    #soundBtn { top:calc(env(safe-area-inset-top) + 2px); }
+    #worldBtn,#flowBtn,#pauseBtn { bottom:calc(env(safe-area-inset-bottom) + 2px); }
+    #sceneCount { bottom:calc(env(safe-area-inset-bottom) + 12px); }
+    #hint { bottom:calc(env(safe-area-inset-bottom) + 54px); }
+    #selector .world-tile:first-of-type .tile-label { left:calc(env(safe-area-inset-left) + 16px); }
+    #selector .world-tile:last-of-type .tile-label { right:calc(env(safe-area-inset-right) + 12px); }
+    body.flow-active #viewer { filter:none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .world-tile::before { animation:none; }
+    body.fallback[data-world] #overlayFx::before { animation:none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute;overflow:hidden;pointer-events:none">
+    <filter id="metaFluidDisplace" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.006 0.012" numOctaves="2" seed="9" result="noise">
+        <animate attributeName="baseFrequency" dur="4.8s" values="0.006 0.012;0.010 0.017;0.007 0.010;0.006 0.012" repeatCount="indefinite" />
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="9" xChannelSelector="R" yChannelSelector="B">
+        <animate attributeName="scale" dur="3.7s" values="6;12;8;14;6" repeatCount="indefinite" />
+      </feDisplacementMap>
+    </filter>
+  </svg>
+  <section id="selector" aria-label="Choose an environment">
+    <div class="selector-brand">VIEW</div>
+    <div class="selector-sub">enter a world · watch it drift</div>
+  </section>
+
+  <main id="viewer" aria-live="polite">
+    <canvas id="gl"></canvas>
+    <div id="camWrap">
+      <div class="scene-layer" id="layerA"></div>
+      <div class="b-band" id="bFar"></div>
+      <div class="b-band" id="bMid"></div>
+      <div class="b-band" id="bNear"></div>
+    </div>
+    <div id="overlayFx"></div>
+    <div class="vignette"></div>
+  </main>
+
+  <div id="hud" class="ui-hidden">
+    <div id="worldName" class="hud-item"></div>
+    <div id="status" class="hud-item">drifting</div>
+    <div id="sceneCount" class="hud-item"></div>
+
+    <button id="soundBtn" class="hud-item hud-button" aria-label="Toggle sound" title="Sound (M)">
+      <span class="glyph" id="soundGlyph"></span>
+    </button>
+    <button id="pauseBtn" class="hud-item hud-button" aria-label="Pause or resume" title="Pause (Space)">
+      <span class="glyph" id="pauseGlyph"></span>
+    </button>
+    <button id="worldBtn" class="hud-item hud-button" aria-label="Choose world" title="Choose world">
+      <span class="glyph" id="worldGlyph"></span>
+    </button>
+    <button id="flowBtn" class="hud-item hud-button" aria-label="Toggle hyper mode" title="Hyper mode (H)">
+      <span class="glyph" id="flowGlyph"></span>
+    </button>
+  </div>
+
+  <div id="hint">tap · swipe · drift</div>
+  <button id="devToggle" aria-label="Toggle developer controls" title="Developer controls (D)">DEV</button>
+
+  <aside id="devPanel" class="dev-hidden" aria-label="Developer controls">
+    <div class="dev-head">
+      <div class="dev-title">VIEW // CONTINUITY ENGINE</div>
+      <div class="dev-readout" id="devReadout">1.0×</div>
+    </div>
+
+    <div class="dev-row">
+      <label>Speed</label>
+      <div>
+        <input id="devSpeed" type="range" min="0" max="6" step="1" value="2" />
+        <div class="dev-buttons" id="devSpeedPresets" style="margin-top:6px">
+          <button class="dev-btn" data-speed="0.25">.25×</button>
+          <button class="dev-btn" data-speed="0.5">.5×</button>
+          <button class="dev-btn active" data-speed="1">1×</button>
+          <button class="dev-btn" data-speed="2">2×</button>
+          <button class="dev-btn" data-speed="4">4×</button>
+          <button class="dev-btn" data-speed="8">8×</button>
+          <button class="dev-btn" data-speed="16">16×</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="dev-row">
+      <label>World</label>
+      <select id="devWorld" class="dev-select"></select>
+    </div>
+
+    <div class="dev-row">
+      <label>Scene</label>
+      <div class="dev-buttons">
+        <button class="dev-btn" id="devPrev">← Prev</button>
+        <select id="devScene" class="dev-select" style="width:auto;flex:1"></select>
+        <button class="dev-btn" id="devNext">Next →</button>
+      </div>
+    </div>
+
+    <div class="dev-sep">
+      <div class="dev-row">
+        <label>Scrub</label>
+        <div>
+          <input id="devScrub" type="range" min="0" max="1000" step="1" value="0" />
+          <div class="dev-buttons" style="margin-top:6px">
+            <button class="dev-btn" data-scrub="0">0%</button>
+            <button class="dev-btn" data-scrub="0.25">25%</button>
+            <button class="dev-btn" data-scrub="0.5">50%</button>
+            <button class="dev-btn" data-scrub="0.75">75%</button>
+            <button class="dev-btn" data-scrub="1">100%</button>
+            <button class="dev-btn" id="devScrubRelease">Release</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dev-sep">
+      <div class="dev-title" style="margin-bottom:4px">Pair tuning</div>
+      <div class="dev-slider"><span>Morph secs</span><input id="tMorph" type="range" min="8" max="60" step="1"><span class="val" id="vMorph"></span></div>
+      <div class="dev-slider"><span>Fg hold</span><input id="tFgHold" type="range" min="0" max="0.8" step="0.01"><span class="val" id="vFgHold"></span></div>
+      <div class="dev-slider"><span>Region span</span><input id="tSpan" type="range" min="0.2" max="0.9" step="0.01"><span class="val" id="vSpan"></span></div>
+      <div class="dev-slider"><span>Mask amount</span><input id="tMask" type="range" min="0" max="0.4" step="0.005"><span class="val" id="vMask"></span></div>
+      <div class="dev-slider"><span>Displacement</span><input id="tDisp" type="range" min="0" max="0.08" step="0.001"><span class="val" id="vDisp"></span></div>
+      <div class="dev-slider"><span>Parallax</span><input id="tPar" type="range" min="0" max="0.06" step="0.001"><span class="val" id="vPar"></span></div>
+      <div class="dev-slider"><span>Atmos boost</span><input id="tFog" type="range" min="0" max="0.45" step="0.01"><span class="val" id="vFog"></span></div>
+      <div class="dev-slider"><span>Exp bridge</span><input id="tExp" type="range" min="-0.3" max="0.3" step="0.01"><span class="val" id="vExp"></span></div>
+      <div class="dev-slider"><span>Align pull</span><input id="tAlign" type="range" min="0" max="1" step="0.01"><span class="val" id="vAlign"></span></div>
+      <div class="dev-buttons" style="margin-top:8px">
+        <select id="devOrder" class="dev-select" style="width:auto;flex:1">
+          <option value="farToNear">far → near</option>
+          <option value="nearToFar">near → far</option>
+        </select>
+        <select id="devMask" class="dev-select" style="width:auto;flex:1">
+          <option value="noise">noise</option>
+          <option value="sweepLeft">sweep left</option>
+          <option value="sweepRight">sweep right</option>
+          <option value="vertical">vertical</option>
+          <option value="radial">radial</option>
+        </select>
+      </div>
+      <div class="dev-buttons" style="margin-top:6px">
+        <button class="dev-btn" id="devAnalyze">Analyze pair</button>
+        <button class="dev-btn" id="devExport">Copy metadata</button>
+      </div>
+    </div>
+
+    <div class="dev-sep">
+      <div class="dev-title" style="margin-bottom:4px">Layers &amp; debug</div>
+      <div class="chk-grid">
+        <label class="chk"><input type="checkbox" id="lyA" checked>Image A</label>
+        <label class="chk"><input type="checkbox" id="lyB" checked>Image B</label>
+        <label class="chk"><input type="checkbox" id="lyAtmos" checked>Atmos</label>
+        <label class="chk"><input type="checkbox" id="lyGrade" checked>Grade</label>
+        <label class="chk"><input type="checkbox" id="lyDisp" checked>Displace</label>
+        <label class="chk"><input type="checkbox" id="lyPar" checked>Parallax</label>
+      </div>
+      <div class="dev-buttons" style="margin-top:8px">
+        <button class="dev-btn active" data-debug="0">Off</button>
+        <button class="dev-btn" data-debug="1">Depth</button>
+        <button class="dev-btn" data-debug="2">Regions</button>
+        <button class="dev-btn" data-debug="3">Anchors</button>
+      </div>
+      <div class="dev-stats" id="devStats" style="margin-top:9px"></div>
+    </div>
+
+    <div class="dev-shortcuts">D panel · S scrub hold · N next · P previous · ] faster · [ slower · 1 reset · G glance test</div>
+  </aside>
+
+  <div id="loading"><div class="loading-mark">VIEW</div></div>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+/* ============================================================================
+   VIEW V1.2 iPHONE RC - CONTINUITY ENGINE
+   The renderer is no longer a crossfade. Two source images are composited
+   through a single persistent camera, split into depth-derived regions that
+   transition at different times, warped toward each other, colour- and
+   luminance-bridged through a shared midpoint, and finally buried inside
+   world-native atmosphere that is part of the composite rather than a layer
+   sitting on top of it.
+   ========================================================================== */
+
+const MOBILE_DEVICE = (window.matchMedia && window.matchMedia("(max-width: 760px)").matches) || (navigator.maxTouchPoints || 0) > 1;
+const IMG = id => {
+  const w = MOBILE_DEVICE ? 1440 : 1920, q = MOBILE_DEVICE ? 80 : 85;
+  return "https://images.pexels.com/photos/" + id + "/pexels-photo-" + id + `.jpeg?auto=compress&cs=tinysrgb&fit=crop&w=${w}&q=${q}`;
+};
+
+/* ---------------------------------------------------------------------------
+   SCENE + PAIR METADATA (§23)
+   horizon : where the dominant horizontal division sits, 0 = top of image
+   depth   : mode 'horizon' | 'radial' | 'linear' | 'flat', how much the
+             image's own luminance refines the depth model, and whether bright
+             means far (sign 1, aerial perspective) or near (sign -1)
+   lum     : approximate mean luminance, used for the luminance bridge
+   tint    : approximate dominant colour multiplier, used for the colour bridge
+   fog     : baseline atmosphere density this scene sits at
+   hold    : seconds this scene rests before the next morph begins
+   These are art-direction values. Tune them live in the dev panel and export.
+--------------------------------------------------------------------------- */
+
+const WORLDS = [
+  {
+    id: "beach", name: "BEACH//FOREVER", mood: "escape / infinity / warmth",
+    fogColor: [0.86, 0.84, 0.80], water: 0.55, particles: 0.0, glow: 0.55, drift: 0.30,
+    defaults: { maskAmp: 0.13, mask: "sweepRight", disp: 0.020, parallax: 0.020, fgHold: 0.50, span: 0.56, fogBoost: 0.16, expBridge: -0.03, colorBridge: 0.55, lumaBridge: 0.60, align: 0.85, order: "farToNear" },
+    scenes: [
+      { src: 37120933, horizon: 0.52, depth: { mode: "horizon", luma: 0.30, sign: 1 }, lum: 0.62, tint: [1.00, 1.01, 1.03], fog: 0.16, hold: 44, frame: [0, 0.00], note: "level shoreline, open water" },
+      { src: 34732319, horizon: 0.50, depth: { mode: "horizon", luma: 0.28, sign: 1 }, lum: 0.60, tint: [1.01, 1.01, 1.02], fog: 0.18, hold: 48, frame: [0, 0.01], note: "wide horizon, soft cloud" },
+      { src: 36458773, horizon: 0.54, depth: { mode: "horizon", luma: 0.30, sign: 1 }, lum: 0.58, tint: [1.02, 1.00, 0.99], fog: 0.20, hold: 46, frame: [0, 0.02], note: "wet sand reflection" },
+      { src: 5008537,  horizon: 0.54, depth: { mode: "horizon", luma: 0.32, sign: 1 }, lum: 0.55, tint: [1.03, 1.00, 0.97], fog: 0.22, hold: 42, frame: [0, 0.02], note: "warming light" },
+      { src: 28408337, horizon: 0.50, depth: { mode: "horizon", luma: 0.30, sign: 1 }, lum: 0.52, tint: [1.05, 0.99, 0.94], fog: 0.24, hold: 50, frame: [0, 0.00], note: "late afternoon" },
+      { src: 9554037,  horizon: 0.52, depth: { mode: "horizon", luma: 0.30, sign: 1 }, lum: 0.48, tint: [1.07, 0.98, 0.92], fog: 0.22, hold: 47, frame: [0, 0.01], note: "sunset water" },
+      { src: 36625896, horizon: 0.56, depth: { mode: "horizon", luma: 0.28, sign: 1 }, lum: 0.45, tint: [1.06, 0.98, 0.95], fog: 0.20, hold: 46, frame: [0, 0.03], note: "dusk shore" },
+      { src: 17809557, horizon: 0.54, depth: { mode: "horizon", luma: 0.30, sign: 1 }, lum: 0.54, tint: [1.02, 1.00, 1.00], fog: 0.18, hold: 44, frame: [0, 0.02], note: "returning light" }
+    ],
+    graph: [[1,2],[2,3],[3,4],[4,5],[5,6],[6,7],[7,0],[0,1]]
+  },
+  {
+    id: "abyss", name: "ABYSS", mood: "immersion / mystery / depth",
+    fogColor: [0.10, 0.27, 0.42], water: 0.85, particles: 0.85, glow: 0.30, drift: 0.42,
+    defaults: { maskAmp: 0.15, mask: "radial", disp: 0.026, parallax: 0.024, fgHold: 0.54, span: 0.54, fogBoost: 0.26, expBridge: -0.05, colorBridge: 0.65, lumaBridge: 0.70, align: 0.70, order: "farToNear" },
+    scenes: [
+      { src: 12730725, horizon: 0.30, depth: { mode: "linear", luma: 0.45, sign: -1 }, lum: 0.44, tint: [0.92, 1.00, 1.08], fog: 0.30, hold: 44, frame: [0, -0.04], note: "shallow light" },
+      { src: 10999877, horizon: 0.36, depth: { mode: "linear", luma: 0.48, sign: -1 }, lum: 0.40, tint: [0.90, 0.99, 1.09], fog: 0.34, hold: 47, frame: [0, -0.02], note: "open blue" },
+      { src: 1748265,  horizon: 0.44, depth: { mode: "radial", luma: 0.50, sign: -1 }, lum: 0.36, tint: [0.88, 0.98, 1.10], fog: 0.38, hold: 42, frame: [0, 0.00], note: "suspended particles" },
+      { src: 3934192,  horizon: 0.46, depth: { mode: "radial", luma: 0.52, sign: -1 }, lum: 0.33, tint: [0.87, 0.97, 1.10], fog: 0.42, hold: 45, frame: [0, 0.00], note: "reef silhouette" },
+      { src: 12035470, horizon: 0.48, depth: { mode: "radial", luma: 0.54, sign: -1 }, lum: 0.29, tint: [0.86, 0.96, 1.11], fog: 0.46, hold: 49, frame: [0, 0.00], note: "deepening" },
+      { src: 10065908, horizon: 0.46, depth: { mode: "radial", luma: 0.52, sign: -1 }, lum: 0.31, tint: [0.87, 0.97, 1.10], fog: 0.44, hold: 44, frame: [0, 0.00], note: "drifting forms" },
+      { src: 18322123, horizon: 0.42, depth: { mode: "linear", luma: 0.48, sign: -1 }, lum: 0.35, tint: [0.89, 0.98, 1.09], fog: 0.38, hold: 46, frame: [0, -0.01], note: "rising" },
+      { src: 1683887,  horizon: 0.34, depth: { mode: "linear", luma: 0.46, sign: -1 }, lum: 0.41, tint: [0.91, 0.99, 1.08], fog: 0.32, hold: 48, frame: [0, -0.03], note: "light shafts" }
+    ],
+    graph: [[1,2],[2,3],[3,4],[4,5],[5,6],[6,7],[7,0],[0,1]]
+  },
+  {
+    id: "orbit", name: "ORBIT", mood: "vastness / isolation / awe",
+    fogColor: [0.05, 0.06, 0.10], water: 0.0, particles: 0.40, glow: 0.42, drift: 0.12,
+    defaults: { maskAmp: 0.10, mask: "radial", disp: 0.012, parallax: 0.012, fgHold: 0.46, span: 0.62, fogBoost: 0.20, expBridge: -0.04, colorBridge: 0.45, lumaBridge: 0.80, align: 0.55, order: "farToNear" },
+    scenes: [
+      { src: 24516527, horizon: 0.50, depth: { mode: "radial", luma: 0.42, sign: -1 }, lum: 0.22, tint: [0.98, 0.99, 1.05], fog: 0.14, hold: 52, frame: [0, 0.00], note: "starfield" },
+      { src: 16451853, horizon: 0.50, depth: { mode: "radial", luma: 0.44, sign: -1 }, lum: 0.25, tint: [1.00, 0.98, 1.04], fog: 0.16, hold: 48, frame: [0, 0.00], note: "faint nebula" },
+      { src: 4994763,  horizon: 0.50, depth: { mode: "radial", luma: 0.46, sign: -1 }, lum: 0.29, tint: [1.03, 0.97, 1.02], fog: 0.18, hold: 54, frame: [0, 0.00], note: "nebula mass" },
+      { src: 6039245,  horizon: 0.52, depth: { mode: "radial", luma: 0.44, sign: -1 }, lum: 0.26, tint: [1.02, 0.98, 1.03], fog: 0.17, hold: 50, frame: [0, 0.00], note: "distant world" },
+      { src: 37269530, horizon: 0.50, depth: { mode: "radial", luma: 0.42, sign: -1 }, lum: 0.23, tint: [0.99, 0.98, 1.05], fog: 0.15, hold: 53, frame: [0, 0.00], note: "planetary limb" },
+      { src: 35106373, horizon: 0.48, depth: { mode: "radial", luma: 0.42, sign: -1 }, lum: 0.21, tint: [0.97, 0.98, 1.06], fog: 0.14, hold: 47, frame: [0, 0.00], note: "black space" },
+      { src: 37269537, horizon: 0.52, depth: { mode: "radial", luma: 0.44, sign: -1 }, lum: 0.24, tint: [0.99, 0.99, 1.05], fog: 0.15, hold: 51, frame: [0, 0.00], note: "galactic band" },
+      { src: 37269543, horizon: 0.50, depth: { mode: "radial", luma: 0.43, sign: -1 }, lum: 0.22, tint: [0.98, 0.99, 1.06], fog: 0.14, hold: 49, frame: [0, 0.00], note: "cosmic emptiness" }
+    ],
+    graph: [[1,2],[2,3],[3,4],[4,5],[5,6],[6,7],[7,0],[0,1]]
+  },
+
+  /* -------------------------------------------------------------------------
+     VEIL — the benchmark world (§37). Sequenced as a narrow progression
+     rather than a variety reel (§38), and every pair is individually
+     art-directed below in PAIRS.veil (§22).
+  ------------------------------------------------------------------------- */
+  {
+    id: "veil", name: "VEIL", mood: "liminality / silence / mystery",
+    fogColor: [0.78, 0.80, 0.81], water: 0.0, particles: 0.18, glow: 0.24, drift: 0.26,
+    defaults: { maskAmp: 0.17, mask: "noise", disp: 0.024, parallax: 0.022, fgHold: 0.58, span: 0.52, fogBoost: 0.22, expBridge: -0.05, colorBridge: 0.60, lumaBridge: 0.72, align: 0.90, order: "farToNear" },
+    scenes: [
+      { src: 9792399,  horizon: 0.62, depth: { mode: "horizon", luma: 0.58, sign: 1 }, lum: 0.60, tint: [0.99, 1.00, 1.01], fog: 0.30, hold: 46, frame: [0, 0.05], note: "pale fog forest" },
+      { src: 28871318, horizon: 0.58, depth: { mode: "horizon", luma: 0.60, sign: 1 }, lum: 0.56, tint: [0.98, 1.00, 1.02], fog: 0.36, hold: 50, frame: [0, 0.03], note: "deeper fog forest" },
+      { src: 11516758, horizon: 0.56, depth: { mode: "horizon", luma: 0.58, sign: 1 }, lum: 0.53, tint: [0.98, 1.00, 1.02], fog: 0.38, hold: 44, frame: [0, 0.02], note: "forest with path" },
+      { src: 31612164, horizon: 0.56, depth: { mode: "horizon", luma: 0.62, sign: 1 }, lum: 0.50, tint: [0.97, 0.99, 1.03], fog: 0.44, hold: 48, frame: [0, 0.03], note: "path obscured by mist" },
+      { src: 8937434,  horizon: 0.52, depth: { mode: "horizon", luma: 0.62, sign: 1 }, lum: 0.47, tint: [0.96, 0.99, 1.04], fog: 0.48, hold: 52, frame: [0, 0.00], note: "mountain forest barely visible" },
+      { src: 3969067,  horizon: 0.52, depth: { mode: "horizon", luma: 0.60, sign: 1 }, lum: 0.42, tint: [0.96, 0.98, 1.04], fog: 0.44, hold: 46, frame: [0, 0.00], note: "dark fog forest" },
+      { src: 20793388, horizon: 0.50, depth: { mode: "horizon", luma: 0.56, sign: 1 }, lum: 0.46, tint: [0.97, 0.99, 1.03], fog: 0.40, hold: 49, frame: [0, -0.01], note: "fog lake, matching horizon" },
+      { src: 10593073, horizon: 0.54, depth: { mode: "horizon", luma: 0.56, sign: 1 }, lum: 0.55, tint: [0.99, 1.00, 1.01], fog: 0.32, hold: 47, frame: [0, 0.01], note: "pale forest morning" }
+    ],
+    graph: [[1,2],[2,3],[3,4],[4,5],[5,6],[6,7],[7,0],[0,1]]
+  }
+];
+
+/* Art-directed pair metadata. Anything absent falls back to world defaults
+   plus a metadata-derived compatibility score. */
+const PAIRS = {
+  veil: {
+    "0>1": { score: 0.94, morph: 30, order: "farToNear", mask: "noise",      maskAmp: 0.16, disp: 0.020, parallax: 0.022, fgHold: 0.60, span: 0.50, fogBoost: 0.20, expBridge: -0.04, align: 0.95, archetype: "atmosphericReveal" },
+    "1>2": { score: 0.91, morph: 33, order: "farToNear", mask: "sweepLeft",  maskAmp: 0.18, disp: 0.024, parallax: 0.020, fgHold: 0.62, span: 0.48, fogBoost: 0.24, expBridge: -0.05, align: 0.95, archetype: "depthReplacement" },
+    "2>3": { score: 0.93, morph: 28, order: "farToNear", mask: "noise",      maskAmp: 0.20, disp: 0.022, parallax: 0.024, fgHold: 0.64, span: 0.46, fogBoost: 0.28, expBridge: -0.06, align: 0.92, archetype: "occlusionPassage" },
+    "3>4": { score: 0.88, morph: 38, order: "farToNear", mask: "noise",      maskAmp: 0.22, disp: 0.028, parallax: 0.020, fgHold: 0.66, span: 0.46, fogBoost: 0.32, expBridge: -0.07, align: 0.88, archetype: "atmosphericReveal" },
+    "4>5": { score: 0.90, morph: 34, order: "nearToFar", mask: "vertical",   maskAmp: 0.17, disp: 0.022, parallax: 0.018, fgHold: 0.52, span: 0.54, fogBoost: 0.24, expBridge: -0.08, align: 0.90, archetype: "lightShift" },
+    "5>6": { score: 0.87, morph: 36, order: "farToNear", mask: "sweepRight", maskAmp: 0.19, disp: 0.026, parallax: 0.022, fgHold: 0.58, span: 0.50, fogBoost: 0.26, expBridge: -0.03, align: 0.94, archetype: "depthReplacement" },
+    "6>7": { score: 0.89, morph: 32, order: "farToNear", mask: "noise",      maskAmp: 0.16, disp: 0.020, parallax: 0.024, fgHold: 0.56, span: 0.52, fogBoost: 0.20, expBridge:  0.04, align: 0.92, archetype: "lightShift" },
+    "7>0": { score: 0.92, morph: 30, order: "farToNear", mask: "noise",      maskAmp: 0.15, disp: 0.018, parallax: 0.022, fgHold: 0.58, span: 0.52, fogBoost: 0.18, expBridge:  0.02, align: 0.95, archetype: "atmosphericReveal" }
+  },
+  beach: {},
+  abyss: {},
+  orbit: {}
+};
+
+/* ---------------------------------------------------------------------------
+   SHADERS
+--------------------------------------------------------------------------- */
+
+const VERT = [
+"attribute vec2 aPos;",
+"varying vec2 vUV;",
+"void main(){ vUV = aPos*0.5 + 0.5; gl_Position = vec4(aPos,0.0,1.0); }"
+].join("\n");
+
+const FRAG = [
+"#ifdef GL_FRAGMENT_PRECISION_HIGH",
+"precision highp float;",
+"#else",
+"precision mediump float;",
+"#endif",
+"varying vec2 vUV;",
+"uniform sampler2D uTexA;",
+"uniform sampler2D uTexB;",
+"uniform vec2 uCoverA; uniform vec2 uCoverB;",
+"uniform vec2 uFrameA; uniform vec2 uFrameB;",
+"uniform vec2 uAlignB;",
+"uniform float uTime;",
+"uniform float uP;",
+"uniform vec3 uCam;",              // scale, offsetX, offsetY
+"uniform vec4 uDepthA;",           // mode, horizon, lumaWeight, lumaSign01
+"uniform vec4 uDepthB;",
+"uniform vec4 uRegion;",           // fgHold, span, order(0 far->near /1 near->far), maskAmp
+"uniform float uMaskType;",        // 0 noise 1 sweepL 2 sweepR 3 vertical 4 radial
+"uniform vec4 uWarp;",             // disp, parallax, water, grain
+"uniform vec4 uGradeA; uniform vec4 uGradeB;", // exposure, contrast, saturation, black
+"uniform vec3 uTintA; uniform vec3 uTintB; uniform vec3 uMidTint;",
+"uniform vec3 uBridge;",           // exposureBridge, colourBridge, lumaBridge
+"uniform vec2 uLumaMean;",
+"uniform float uWorld;",           // 0 beach 1 abyss 2 orbit 3 veil
+"uniform vec4 uAtmos;",            // fog, particles, glow, drift
+"uniform vec3 uFogColor;",
+"uniform vec4 uMicro;",            // fog, exposure, warmth, haze
+"uniform float uQuality;",
+"uniform float uDebug;",
+"uniform vec4 uShow;",             // A, B, atmosphere, grade
+"uniform vec2 uShow2;",            // displacement, parallax
+"",
+"const float PI = 3.14159265;",
+"",
+"float luma(vec3 c){ return dot(c, vec3(0.2126,0.7152,0.0722)); }",
+"float hash21(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }",
+"float vnoise(vec2 p){",
+"  vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);",
+"  float a = hash21(i); float b = hash21(i+vec2(1.0,0.0));",
+"  float c = hash21(i+vec2(0.0,1.0)); float d = hash21(i+vec2(1.0,1.0));",
+"  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);",
+"}",
+"float fbm(vec2 p){",
+"  float s = 0.0; float a = 0.5;",
+"  for(int i=0;i<3;i++){ s += a*vnoise(p); p *= 2.03; a *= 0.5; }",
+"  return s*1.33;",
+"}",
+"",
+"float depthGeo(vec2 uv, float mode, float h){",
+"  if(mode < 0.5){",
+"    float below = clamp((uv.y - h)/max(0.02, 1.0-h), 0.0, 1.0);",
+"    return 1.0 - pow(below, 0.85);",
+"  } else if(mode < 1.5){",
+"    float r = length((uv-0.5)*vec2(1.2,1.0));",
+"    return clamp(1.0 - smoothstep(0.10, 0.86, r), 0.0, 1.0)*0.8 + 0.2;",
+"  } else if(mode < 2.5){",
+"    return clamp(1.0 - uv.y, 0.0, 1.0);",
+"  }",
+"  return 0.5;",
+"}",
+"",
+"vec2 frameUV(vec2 uv, vec2 cover, vec2 frame, vec2 extra){",
+"  return (uv-0.5)*cover/max(uCam.x,0.4) + 0.5 + (uCam.yz + frame + extra)*cover;",
+"}",
+"",
+"float depthFromA(vec2 uv, float base){",
+"  float l = base;",
+"  if(uQuality > 0.5){",
+"    l += luma(texture2D(uTexA, uv+vec2(0.017,0.0)).rgb);",
+"    l += luma(texture2D(uTexA, uv-vec2(0.017,0.0)).rgb);",
+"    l += luma(texture2D(uTexA, uv+vec2(0.0,0.023)).rgb);",
+"    l += luma(texture2D(uTexA, uv-vec2(0.0,0.023)).rgb);",
+"    l /= 5.0;",
+"  }",
+"  float lt = mix(1.0-l, l, uDepthA.w);",
+"  return clamp(mix(depthGeo(uv, uDepthA.x, uDepthA.y), lt, uDepthA.z), 0.0, 1.0);",
+"}",
+"float depthFromB(vec2 uv, float base){",
+"  float l = base;",
+"  if(uQuality > 0.5){",
+"    l += luma(texture2D(uTexB, uv+vec2(0.017,0.0)).rgb);",
+"    l += luma(texture2D(uTexB, uv-vec2(0.017,0.0)).rgb);",
+"    l += luma(texture2D(uTexB, uv+vec2(0.0,0.023)).rgb);",
+"    l += luma(texture2D(uTexB, uv-vec2(0.0,0.023)).rgb);",
+"    l /= 5.0;",
+"  }",
+"  float lt = mix(1.0-l, l, uDepthB.w);",
+"  return clamp(mix(depthGeo(uv, uDepthB.x, uDepthB.y), lt, uDepthB.z), 0.0, 1.0);",
+"}",
+"",
+/* Region progress. Far or near regions lead depending on the pair's order;
+   nothing finishes until slightly past p=1 so remnants of A survive deep
+   into B (§48). */
+"float regionProgress(float p, float d, float bias){",
+"  float lag = mix(1.0-d, d, uRegion.z);",
+"  float t0 = lag*uRegion.x;",
+"  float t1 = clamp(t0 + uRegion.y, t0 + 0.06, 1.10);",
+"  float lp = smoothstep(t0, t1, p + bias);",
+"  return lp * smoothstep(0.0, 0.02, p);",
+"}",
+"",
+"float maskBias(vec2 uv, float t){",
+"  if(uRegion.w <= 0.0001) return 0.0;",
+"  float n = fbm(uv*vec2(2.6,1.9) + vec2(t*0.010, -t*0.005));",
+"  float sweep = 0.5;",
+"  if(uMaskType < 0.5) sweep = 0.5;",
+"  else if(uMaskType < 1.5) sweep = uv.x;",
+"  else if(uMaskType < 2.5) sweep = 1.0-uv.x;",
+"  else if(uMaskType < 3.5) sweep = uv.y;",
+"  else sweep = clamp(length((uv-0.5)*vec2(1.2,1.0))*1.6, 0.0, 1.0);",
+"  return ((n-0.5)*1.35 + (sweep-0.5)*0.55) * uRegion.w;",
+"}",
+"",
+"vec2 waterWarp(vec2 uv, float h, float amt, float t){",
+"  if(amt <= 0.0001) return vec2(0.0);",
+"  float below = smoothstep(h-0.04, h+0.30, uv.y);",
+"  float n = vnoise(uv*vec2(5.0,13.0) + vec2(t*0.05,-t*0.085));",
+"  return vec2(sin(uv.y*34.0 + t*0.40)*0.0015 + (n-0.5)*0.0035, (n-0.5)*0.0020) * amt * below;",
+"}",
+"",
+"vec3 applyGrade(vec3 c, vec4 g, vec3 tint){",
+"  if(uShow.w < 0.5) return c;",
+"  c = max(c - g.w, 0.0) / max(1.0 - g.w, 0.2);",
+"  c = (c - 0.5)*g.y + 0.5;",
+"  float l = luma(c);",
+"  c = mix(vec3(l), c, g.z);",
+"  c *= tint;",
+"  c *= exp2(g.x);",
+"  return max(c, 0.0);",
+"}",
+"",
+"float sparkle(vec2 uv, float scale, float t, float speed, float thresh, float rad){",
+"  vec2 p = uv*scale + vec2(t*speed*0.35, -t*speed);",
+"  vec2 i = floor(p); vec2 f = fract(p);",
+"  float h = hash21(i);",
+"  if(h < thresh) return 0.0;",
+"  vec2 c = vec2(hash21(i+7.13), hash21(i+3.71));",
+"  return (1.0 - smoothstep(0.0, rad, length(f-c))) * (0.4 + 0.6*hash21(i+1.7));",
+"}",
+"",
+"vec3 atmosphere(vec3 col, vec2 uv, float d, float t, float fogAmt){",
+"  if(uShow.z < 0.5) return col;",
+"  float n = fbm(uv*vec2(2.1,1.5) + vec2(t*0.006*uAtmos.w, -t*0.0026*uAtmos.w));",
+"  float n2 = vnoise(uv*vec2(4.6,3.1) + vec2(-t*0.011*uAtmos.w, t*0.004*uAtmos.w));",
+"",
+"  if(uWorld > 2.5){",                       // VEIL
+"    float fog = fogAmt * (0.52 + 0.72*n) * (0.30 + 0.90*pow(d,1.25));",
+"    fog += uMicro.x*0.10*n2;",
+"    fog = clamp(fog, 0.0, 0.84);",
+"    col = mix(col, uFogColor, fog);",
+"    float bankY = 0.60 + 0.10*sin(t*0.030);",
+"    float bank = (1.0 - smoothstep(0.0, 0.34, abs(uv.y-bankY))) * 0.16 * fogAmt * (0.35+0.75*n);",
+"    col = mix(col, uFogColor, bank);",
+"    col += vec3(0.02,0.022,0.024) * uAtmos.z * n2 * (0.5+0.5*d);",
+"    if(uQuality > 1.5) col += vec3(0.9,0.93,0.95)*sparkle(uv, 130.0, t, 0.006, 0.975, 0.10)*0.05*uAtmos.y;",
+"  } else if(uWorld > 1.5){",                // ORBIT
+"    float dark = clamp(fogAmt*0.85*(0.45+0.75*n), 0.0, 0.7);",
+"    col = mix(col, uFogColor, dark*(0.25+0.75*(1.0-d)));",
+"    float neb = fbm(uv*vec2(1.6,1.3) + vec2(t*0.0016, t*0.0009));",
+"    col += vec3(0.10,0.06,0.16) * neb * uAtmos.z * 0.30 * (0.4+0.6*d);",
+"    float st = sparkle(uv, 190.0, t, 0.0016, 0.982, 0.09)",
+"             + sparkle(uv*1.31+11.0, 120.0, t, 0.0032, 0.987, 0.11)*0.7;",
+"    col += vec3(0.92,0.94,1.0) * st * uAtmos.y * (1.0 - clamp(luma(col)*1.5,0.0,1.0));",
+"  } else if(uWorld > 0.5){",                // ABYSS
+"    float deep = clamp(fogAmt*(0.55+0.65*n)*(0.25+0.95*pow(d,1.35)), 0.0, 0.85);",
+"    col = mix(col, uFogColor, deep);",
+"    float c = sin(uv.x*13.0 + fbm(uv*2.6 + t*0.020)*6.0) * sin(uv.y*8.0 - t*0.06);",
+"    col += vec3(0.45,0.80,1.0) * max(c,0.0) * 0.055 * uAtmos.z * (1.0 - smoothstep(0.0,0.62,uv.y));",
+"    float pt = sparkle(uv, 70.0, t, 0.010, 0.955, 0.15)",
+"             + sparkle(uv*1.7+5.0, 44.0, t, 0.016, 0.945, 0.19)*0.8;",
+"    col += vec3(0.72,0.88,1.0) * pt * uAtmos.y * 0.10 * (0.35+0.65*(1.0-d));",
+"  } else {",                                // BEACH
+"    float haze = clamp(fogAmt*(0.45+0.70*n)*(0.20+0.95*pow(d,1.4)), 0.0, 0.72);",
+"    col = mix(col, uFogColor*vec3(1.0,0.99,0.97), haze);",
+"    float band = 1.0 - smoothstep(0.0, 0.16, abs(uv.y - uDepthA.y));",
+"    col += vec3(1.0,0.86,0.68) * band * uAtmos.z * 0.14 * (0.6+0.5*n2);",
+"    float bloom = 1.0 - smoothstep(0.0, 0.75, length((uv-vec2(0.5,uDepthA.y))*vec2(1.1,1.6)));",
+"    col += vec3(1.0,0.88,0.72) * bloom * uAtmos.z * 0.05;",
+"  }",
+"  return col;",
+"}",
+"",
+"void main(){",
+"  vec2 uv = vUV;",
+"  float t = uTime;",
+"  float p = uP;",
+"  float pc = clamp(p, 0.0, 1.0);",
+"  float bell = sin(pc*PI);",
+"",
+"  vec2 uA0 = frameUV(uv, uCoverA, uFrameA, vec2(0.0));",
+"  vec2 uB0 = frameUV(uv, uCoverB, uFrameB, uAlignB);",
+"",
+"  float lA0 = luma(texture2D(uTexA, clamp(uA0,0.002,0.998)).rgb);",
+"  float lB0 = luma(texture2D(uTexB, clamp(uB0,0.002,0.998)).rgb);",
+"  float dA = depthFromA(clamp(uA0,0.002,0.998), lA0);",
+"  float dB = depthFromB(clamp(uB0,0.002,0.998), lB0);",
+"",
+/* Parallax: near layers travel further than far layers, sky nearly fixed. */
+"  vec2 par = vec2(sin(t*0.023)*0.6 + sin(t*0.0071)*0.4, cos(t*0.017)*0.42) * uWarp.y * uShow2.y;",
+"",
+/* Depth-aware displacement: A pushes out, B eases in, strongest mid-morph. */
+"  vec2 flow = vec2(fbm(uv*2.3 + vec2(t*0.008,0.0)) - 0.5, fbm(uv*2.0 + vec2(0.0,-t*0.006)) - 0.5);",
+"  vec2 dsp = flow * uWarp.x * bell * uShow2.x;",
+"",
+"  vec2 uA = uA0 + par*(1.0-dA) + dsp*(0.35+0.95*dA) + waterWarp(uA0, uDepthA.y, uWarp.z, t);",
+"  vec2 uB = uB0 + par*(1.0-dB) - dsp*(0.30+0.80*dB)*0.85 + waterWarp(uB0, uDepthB.y, uWarp.z, t);",
+"",
+"  vec3 cA = texture2D(uTexA, clamp(uA,0.002,0.998)).rgb;",
+"  vec3 cB = texture2D(uTexB, clamp(uB,0.002,0.998)).rgb;",
+"",
+"  cA = applyGrade(cA, uGradeA, uTintA);",
+"  cB = applyGrade(cB, uGradeB, uTintB);",
+"",
+/* Luminance bridge (§19): pull both toward a shared mid-brightness so no
+   step in overall exposure ever appears. */
+"  float target = mix(uLumaMean.x, uLumaMean.y, pc);",
+"  float midL = (uLumaMean.x + uLumaMean.y)*0.5;",
+"  target = mix(target, midL, bell*uBridge.z);",
+"  cA *= clamp(target/max(uLumaMean.x,0.04), 0.72, 1.42);",
+"  cB *= clamp(target/max(uLumaMean.y,0.04), 0.72, 1.42);",
+"",
+"  float bias = maskBias(uv, t) * bell;",
+"  float dMix = mix(dA, dB, pc);",
+"  float lp = regionProgress(p, dMix, bias);",
+"  if(uShow.x < 0.5) lp = 1.0;",
+"  if(uShow.y < 0.5) lp = 0.0;",
+"",
+"  vec3 col = mix(cA, cB, lp);",
+"",
+/* Colour bridge (§18): grade the whole frame toward the pair midpoint while
+   the morph is happening, so a cyan world never jumps to an orange one. */
+"  vec3 curTint = mix(uTintA, uTintB, lp);",
+"  vec3 midPull = col * (uMidTint / max(curTint, vec3(0.08)));",
+"  col = mix(col, midPull, bell*uBridge.y);",
+"  col *= exp2(uBridge.x*bell + uMicro.y*0.05);",
+"  col *= vec3(1.0 + uMicro.z*0.035, 1.0, 1.0 - uMicro.z*0.030);",
+"",
+/* Atmosphere is part of the composite, not a layer on top (§46). */
+"  float fogAmt = uAtmos.x + uMicro.w*0.05;",
+"  col = atmosphere(col, uv, dMix, t, max(fogAmt, 0.0));",
+"",
+/* Final restraint: gentle vignette plus faint grain, so compression banding
+   inside the fog never resolves into a hard edge. */
+"  float vig = 1.0 - smoothstep(0.35, 1.15, length((uv-0.5)*vec2(1.05,1.0)));",
+"  col *= mix(0.84, 1.0, vig);",
+"  col += (hash21(uv*921.0 + fract(uTime*0.37)*vec2(311.7,157.3)) - 0.5) * uWarp.w;",
+"",
+"  if(uDebug > 0.5){",
+"    if(uDebug < 1.5){",
+"      col = vec3(dMix);",
+"    } else if(uDebug < 2.5){",
+"      float lpv = clamp(lp,0.0,1.0);",
+"      col = mix(col*0.25, vec3(lpv, 0.25*lpv, 1.0-lpv), 0.78);",
+"    } else {",
+"      float ha = 1.0 - smoothstep(0.0, 0.004, abs(uv.y - (uDepthA.y - uFrameA.y)));",
+"      float hb = 1.0 - smoothstep(0.0, 0.004, abs(uv.y - (uDepthB.y - uFrameB.y - uAlignB.y)));",
+"      col = mix(col, vec3(1.0,0.35,0.25), ha*0.9);",
+"      col = mix(col, vec3(0.35,0.8,1.0), hb*0.9);",
+"    }",
+"  }",
+"",
+"  gl_FragColor = vec4(clamp(col,0.0,1.0), 1.0);",
+"}"
+].join("\n");
+
+/* ---------------------------------------------------------------------------
+   RENDERER
+--------------------------------------------------------------------------- */
+
+const Renderer = {
+  gl: null, prog: null, u: {}, ok: false, canvas: null,
+  dprCap: 1.5, w: 0, h: 0,
+
+  init(canvas) {
+    this.canvas = canvas;
+    let gl = null;
+    try {
+      const opts = { alpha: false, antialias: false, depth: false, stencil: false,
+                     powerPreference: "high-performance", preserveDrawingBuffer: false };
+      gl = canvas.getContext("webgl", opts) || canvas.getContext("experimental-webgl", opts);
+    } catch (e) { gl = null; }
+    if (!gl) return false;
+    this.gl = gl;
+
+    const vs = this.compile(gl.VERTEX_SHADER, VERT);
+    const fs = this.compile(gl.FRAGMENT_SHADER, FRAG);
+    if (!vs || !fs) return false;
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+    gl.bindAttribLocation(prog, 0, "aPos");
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      console.warn("VIEW: program link failed", gl.getProgramInfoLog(prog));
+      return false;
+    }
+    this.prog = prog;
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+    const names = ["uTexA","uTexB","uCoverA","uCoverB","uFrameA","uFrameB","uAlignB","uTime","uP",
+      "uCam","uDepthA","uDepthB","uRegion","uMaskType","uWarp","uGradeA","uGradeB","uTintA","uTintB",
+      "uMidTint","uBridge","uLumaMean","uWorld","uAtmos","uFogColor","uMicro","uQuality","uDebug",
+      "uShow","uShow2"];
+    names.forEach(n => { this.u[n] = gl.getUniformLocation(prog, n); });
+    gl.uniform1i(this.u.uTexA, 0);
+    gl.uniform1i(this.u.uTexB, 1);
+
+    this.ok = true;
+    return true;
+  },
+
+  compile(type, src) {
+    const gl = this.gl;
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.warn("VIEW: shader compile failed\n" + gl.getShaderInfoLog(s));
+      return null;
+    }
+    return s;
+  },
+
+  makeTexture(img) {
+    const gl = this.gl;
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    try {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img);
+    } catch (e) {
+      gl.deleteTexture(tex);
+      return null;
+    }
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    return tex;
+  },
+
+  resize() {
+    if (!this.ok) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, this.dprCap);
+    const w = Math.max(2, Math.round(this.canvas.clientWidth * dpr));
+    const h = Math.max(2, Math.round(this.canvas.clientHeight * dpr));
+    if (w === this.w && h === this.h) return;
+    this.w = w; this.h = h;
+    this.canvas.width = w; this.canvas.height = h;
+    this.gl.viewport(0, 0, w, h);
+  },
+
+  cover(imgW, imgH) {
+    const ca = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
+    const ia = imgW / Math.max(1, imgH);
+    return ia > ca ? [ca / ia, 1] : [1, ia / ca];
+  },
+
+  draw(s) {
+    if (!this.ok) return;
+    const gl = this.gl, u = this.u;
+    this.resize();
+    gl.useProgram(this.prog);
+
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, s.texA);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, s.texB || s.texA);
+
+    gl.uniform2fv(u.uCoverA, s.coverA);
+    gl.uniform2fv(u.uCoverB, s.coverB);
+    gl.uniform2fv(u.uFrameA, s.frameA);
+    gl.uniform2fv(u.uFrameB, s.frameB);
+    gl.uniform2fv(u.uAlignB, s.alignB);
+    gl.uniform1f(u.uTime, s.time);
+    gl.uniform1f(u.uP, s.p);
+    gl.uniform3fv(u.uCam, s.cam);
+    gl.uniform4fv(u.uDepthA, s.depthA);
+    gl.uniform4fv(u.uDepthB, s.depthB);
+    gl.uniform4fv(u.uRegion, s.region);
+    gl.uniform1f(u.uMaskType, s.maskType);
+    gl.uniform4fv(u.uWarp, s.warp);
+    gl.uniform4fv(u.uGradeA, s.gradeA);
+    gl.uniform4fv(u.uGradeB, s.gradeB);
+    gl.uniform3fv(u.uTintA, s.tintA);
+    gl.uniform3fv(u.uTintB, s.tintB);
+    gl.uniform3fv(u.uMidTint, s.midTint);
+    gl.uniform3fv(u.uBridge, s.bridge);
+    gl.uniform2fv(u.uLumaMean, s.lumaMean);
+    gl.uniform1f(u.uWorld, s.world);
+    gl.uniform4fv(u.uAtmos, s.atmos);
+    gl.uniform3fv(u.uFogColor, s.fogColor);
+    gl.uniform4fv(u.uMicro, s.micro);
+    gl.uniform1f(u.uQuality, s.quality);
+    gl.uniform1f(u.uDebug, s.debug);
+    gl.uniform4fv(u.uShow, s.show);
+    gl.uniform2fv(u.uShow2, s.show2);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+};
+
+/* ---------------------------------------------------------------------------
+   CAMERA CONTROLLER — one camera, never reset (§11)
+--------------------------------------------------------------------------- */
+
+const Camera = {
+  t: 0, scale: 1.035, x: 0, y: 0,
+  step(dt) {
+    this.t += dt;
+    const t = this.t;
+    // Slow, non-repeating drift built from incommensurate periods.
+    this.scale = 1.035 + 0.028*Math.sin(t*0.0121) + 0.012*Math.sin(t*0.0043 + 1.7);
+    this.x = 0.016*Math.sin(t*0.0091) + 0.009*Math.sin(t*0.0037 + 0.6);
+    this.y = 0.012*Math.cos(t*0.0074) + 0.007*Math.sin(t*0.0029 + 2.2);
+  },
+  uniform() { return [this.scale, this.x, this.y]; }
+};
+
+/* ---------------------------------------------------------------------------
+   ATMOSPHERE CONTROLLER — continuous micro-change (§16)
+--------------------------------------------------------------------------- */
+
+const Atmos = {
+  t: 0, fog: 0, exposure: 0, warmth: 0, haze: 0,
+  step(dt) {
+    this.t += dt;
+    const t = this.t;
+    this.fog      = Math.sin(t*0.047) * 0.6 + Math.sin(t*0.0131 + 1.1) * 0.4;
+    this.exposure = Math.sin(t*0.0193 + 0.4) * 0.7 + Math.sin(t*0.0067) * 0.3;
+    this.warmth   = Math.sin(t*0.0113 + 2.3) * 0.8 + Math.sin(t*0.0041) * 0.2;
+    this.haze     = Math.sin(t*0.0089 + 0.9) * 0.65 + Math.sin(t*0.0233) * 0.35;
+  },
+  uniform() { return [this.fog, this.exposure, this.warmth, this.haze]; }
+};
+
+/* ---------------------------------------------------------------------------
+   COLOUR CONTROLLER (§18/§19)
+--------------------------------------------------------------------------- */
+
+const Colour = {
+  midTint(a, b, bridgeName) {
+    const m = [
+      (a.tint[0] + b.tint[0]) * 0.5,
+      (a.tint[1] + b.tint[1]) * 0.5,
+      (a.tint[2] + b.tint[2]) * 0.5
+    ];
+    if (bridgeName === "coolNeutral") { m[0] *= 0.985; m[2] *= 1.015; }
+    if (bridgeName === "warmNeutral") { m[0] *= 1.015; m[2] *= 0.985; }
+    return m;
+  },
+  grade(scene) {
+    const g = scene.grade || {};
+    return [g.exposure || 0, g.contrast == null ? 1 : g.contrast,
+            g.sat == null ? 1 : g.sat, g.black || 0];
+  }
+};
+
+/* ---------------------------------------------------------------------------
+   SCENE MANAGER — continuity graph traversal (§6/§7)
+--------------------------------------------------------------------------- */
+
+const MIN_SCORE = 0.62;
+
+function autoScore(world, a, b) {
+  const sa = world.scenes[a], sb = world.scenes[b];
+  const dHorizon = Math.abs(sa.horizon - sb.horizon);
+  const dLum     = Math.abs(sa.lum - sb.lum);
+  const dFog     = Math.abs(sa.fog - sb.fog);
+  const dTint    = (Math.abs(sa.tint[0]-sb.tint[0]) + Math.abs(sa.tint[1]-sb.tint[1]) + Math.abs(sa.tint[2]-sb.tint[2])) / 3;
+  const dDepth   = sa.depth.mode === sb.depth.mode ? 0 : 0.12;
+  const penalty = dHorizon*1.9 + dLum*1.3 + dFog*0.55 + dTint*4.0 + dDepth;
+  return Math.max(0, Math.min(1, 1 - penalty));
+}
+
+function pairKey(a, b) { return a + ">" + b; }
+
+const overrides = {};   // live dev tuning, keyed world:pairKey
+
+function pairMeta(world, a, b) {
+  const authored = (PAIRS[world.id] || {})[pairKey(a, b)] || {};
+  const d = world.defaults;
+  const base = {
+    score: authored.score != null ? authored.score : autoScore(world, a, b),
+    morph: authored.morph != null ? authored.morph : 30,
+    order: authored.order || d.order,
+    mask: authored.mask || d.mask,
+    maskAmp: authored.maskAmp != null ? authored.maskAmp : d.maskAmp,
+    disp: authored.disp != null ? authored.disp : d.disp,
+    parallax: authored.parallax != null ? authored.parallax : d.parallax,
+    fgHold: authored.fgHold != null ? authored.fgHold : d.fgHold,
+    span: authored.span != null ? authored.span : d.span,
+    fogBoost: authored.fogBoost != null ? authored.fogBoost : d.fogBoost,
+    expBridge: authored.expBridge != null ? authored.expBridge : d.expBridge,
+    colorBridge: authored.colorBridge != null ? authored.colorBridge : d.colorBridge,
+    lumaBridge: authored.lumaBridge != null ? authored.lumaBridge : d.lumaBridge,
+    align: authored.align != null ? authored.align : d.align,
+    archetype: authored.archetype || "atmosphericReveal",
+    colorMid: authored.colorMid || "neutral"
+  };
+  const ov = overrides[world.id + ":" + pairKey(a, b)];
+  return ov ? Object.assign({}, base, ov) : base;
+}
+
+const MASK_INDEX = { noise: 0, sweepLeft: 1, sweepRight: 2, vertical: 3, radial: 4 };
+const WORLD_INDEX = { beach: 0, abyss: 1, orbit: 2, veil: 3 };
+
+const Scenes = {
+  recent: [],
+  next(world, from) {
+    const neighbours = world.graph[from] || [];
+    const eligible = neighbours
+      .map(n => ({ n: n, s: pairMeta(world, from, n).score }))
+      .filter(o => o.s >= MIN_SCORE);
+    const pool = eligible.length ? eligible : neighbours.map(n => ({ n: n, s: pairMeta(world, from, n).score }));
+    if (!pool.length) return (from + 1) % world.scenes.length;
+    // Prefer strong continuity, then least recently visited.
+    pool.sort((a, b) => {
+      const ra = this.recent.lastIndexOf(a.n), rb = this.recent.lastIndexOf(b.n);
+      const wa = a.s - (ra < 0 ? 0 : (ra + 1) / (this.recent.length + 1)) * 0.35;
+      const wb = b.s - (rb < 0 ? 0 : (rb + 1) / (this.recent.length + 1)) * 0.35;
+      return wb - wa;
+    });
+    return pool[0].n;
+  },
+  visit(i) {
+    this.recent.push(i);
+    if (this.recent.length > 6) this.recent.shift();
+  }
+};
+
+/* ---------------------------------------------------------------------------
+   TEXTURE / IMAGE LOADING
+--------------------------------------------------------------------------- */
+
+const assets = new Map();   // src -> {img, tex, w, h, ready}
+const MAX_ASSETS = MOBILE_DEVICE ? 7 : 12;
+
+const LOAD_TIMEOUT = 12000;
+
+function loadAsset(src) {
+  const existing = assets.get(src);
+  if (existing) {
+    // A request that failed or timed out earlier is worth one more attempt
+    // later, but a world must never block waiting on it.
+    if (!existing.failed || performance.now() - existing.used < 5000) return existing.promise;
+    assets.delete(src);
+  }
+  const rec = { img: null, tex: null, w: 1920, h: 1080, ready: false, failed: false, used: performance.now() };
+  rec.promise = new Promise(resolve => {
+    let settled = false;
+    const finish = () => { if (settled) return; settled = true; resolve(rec); };
+    const im = new Image();
+    im.crossOrigin = "anonymous";
+    im.decoding = "async";
+    im.onload = () => {
+      rec.img = im; rec.w = im.naturalWidth || 1920; rec.h = im.naturalHeight || 1080;
+      if (Renderer.ok) {
+        rec.tex = Renderer.makeTexture(im);
+        if (!rec.tex) Engine.degrade("texture upload blocked");
+      }
+      rec.ready = !!rec.tex || !Renderer.ok;
+      rec.used = performance.now();
+      finish();
+    };
+    im.onerror = () => { rec.failed = true; rec.used = performance.now(); finish(); };
+    setTimeout(() => { if (!settled) { rec.failed = true; rec.used = performance.now(); finish(); } }, LOAD_TIMEOUT);
+    im.src = src;
+  });
+  assets.set(src, rec);
+  trimAssets();
+  return rec.promise;
+}
+
+function trimAssets() {
+  if (assets.size <= MAX_ASSETS) return;
+  // Never evict what is on screen right now or queued next.
+  const keep = {};
+  try {
+    const w = Engine.world();
+    keep[IMG(w.scenes[Engine.from].src)] = 1;
+    keep[IMG(w.scenes[Engine.to].src)] = 1;
+    (w.graph[Engine.to] || []).forEach(n => { keep[IMG(w.scenes[n].src)] = 1; });
+  } catch (e) { /* engine not started yet */ }
+  const entries = Array.from(assets.entries()).sort((a, b) => a[1].used - b[1].used);
+  while (assets.size > MAX_ASSETS && entries.length) {
+    const pair = entries.shift();
+    if (keep[pair[0]]) continue;
+    if (pair[1].tex && Renderer.gl) Renderer.gl.deleteTexture(pair[1].tex);
+    assets.delete(pair[0]);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   TRANSITION CONTROLLER + ENGINE
+--------------------------------------------------------------------------- */
+
+const P_END = 1.12;   // morph runs slightly past 1 so nothing snaps at the swap
+
+const Engine = {
+  worldIndex: 3,
+  from: 0, to: 1,
+  phase: "hold",      // hold | morph
+  clock: 0,           // world time in scaled seconds
+  holdLeft: 0,
+  morphT: 0,
+  morphDur: 30,
+  timeScale: 1,
+  paused: false,
+  started: false,
+  quality: 2,
+  debug: 0,
+  scrub: null,        // null = live, otherwise 0..1
+  meta: null,
+  fallback: false,
+  frames: 0, fps: 60, fpsAcc: 0, fpsN: 0,
+
+  world() { return WORLDS[this.worldIndex]; },
+  sceneA() { return this.world().scenes[this.from]; },
+  sceneB() { return this.world().scenes[this.to]; },
+
+  degrade(reason) {
+    if (this.fallback) return;
+    this.fallback = true;
+    Renderer.ok = false;
+    document.body.classList.add("fallback");
+    console.warn("VIEW: falling back to CSS compositor —", reason);
+  },
+
+  async enterWorld(i, sceneStart) {
+    this.worldIndex = (i + WORLDS.length) % WORLDS.length;
+    const w = this.world();
+    this.from = sceneStart == null ? 0 : ((sceneStart % w.scenes.length) + w.scenes.length) % w.scenes.length;
+    this.to = Scenes.next(w, this.from);
+    Scenes.recent = [this.from];
+    this.phase = "hold";
+    this.holdLeft = w.scenes[this.from].hold * 0.22;   // short first hold on entry
+    this.morphT = 0;
+    this.started = true;
+    this.paused = false;
+    this.scrub = null;
+
+    document.body.dataset.world = w.id;
+    UI.worldName.textContent = w.name;
+    UI.setStatus();
+    UI.updatePauseIcon();
+    UI.loading.classList.remove("hidden");
+    UI.selector.classList.add("hidden");
+
+    await Promise.all([loadAsset(IMG(w.scenes[this.from].src)), loadAsset(IMG(w.scenes[this.to].src))]);
+    this.meta = pairMeta(w, this.from, this.to);
+    this.morphDur = this.meta.morph;
+    this.preloadAhead();
+    UI.sceneCount.textContent = this.countLabel();
+    setTimeout(() => UI.loading.classList.add("hidden"), 260);
+    UI.showUI(2400);
+    UI.flashHint();
+    Audio.retune();
+    Dev.refresh();
+  },
+
+  countLabel() {
+    const w = this.world();
+    return String(this.from + 1).padStart(2, "0") + " / " + String(w.scenes.length).padStart(2, "0");
+  },
+
+  preloadAhead() {
+    const w = this.world();
+    (w.graph[this.to] || []).slice(0, 2).forEach(n => loadAsset(IMG(w.scenes[n].src)));
+  },
+
+  beginMorph() {
+    const w = this.world();
+    this.meta = pairMeta(w, this.from, this.to);
+    this.morphDur = this.meta.morph;
+    this.morphT = 0;
+    this.phase = "morph";
+    Dev.refresh();
+  },
+
+  completeMorph() {
+    const w = this.world();
+    Scenes.visit(this.to);
+    this.from = this.to;
+    this.to = Scenes.next(w, this.from);
+    loadAsset(IMG(w.scenes[this.to].src));
+    this.meta = pairMeta(w, this.from, this.to);
+    this.phase = "hold";
+    this.holdLeft = w.scenes[this.from].hold;
+    this.morphT = 0;
+    UI.sceneCount.textContent = this.countLabel();
+    this.preloadAhead();
+    Dev.refresh();
+  },
+
+  progress() {
+    if (this.scrub != null) return this.scrub * P_END;
+    if (this.phase !== "morph") return 0;
+    return (this.morphT / Math.max(0.5, this.morphDur)) * P_END;
+  },
+
+  step(dtReal) {
+    const dt = this.paused ? 0 : dtReal * this.timeScale;
+    this.clock += dt;
+    Camera.step(dt);
+    Atmos.step(dt);
+    if (!this.started || this.scrub != null) return;
+    if (this.phase === "hold") {
+      this.holdLeft -= dt;
+      if (this.holdLeft <= 0) this.beginMorph();
+    } else {
+      this.morphT += dt;
+      if (this.morphT >= this.morphDur) this.completeMorph();
+    }
+  },
+
+  /* Alignment: at the start of a morph B is pulled toward A's horizon, and
+     eases back to its own framing by the end. The residual is small and slow
+     enough to read as camera drift, not as a crop change (§12). */
+  alignOffset(p) {
+    const w = this.world();
+    const a = w.scenes[this.from], b = w.scenes[this.to];
+    const m = this.meta || pairMeta(w, this.from, this.to);
+    const raw = (a.horizon - b.horizon) * m.align;
+    const clamped = Math.max(-0.09, Math.min(0.09, raw));
+    const k = 1 - Math.min(1, Math.max(0, p));
+    const eased = k * k * (3 - 2 * k);          // smooth release
+    return [0, clamped * eased];
+  },
+
+  frameState() {
+    const w = this.world();
+    const a = w.scenes[this.from], b = w.scenes[this.to];
+    const m = this.meta || pairMeta(w, this.from, this.to);
+    const recA = assets.get(IMG(a.src)), recB = assets.get(IMG(b.src));
+    if (!recA || !recA.ready) return null;
+    recA.used = performance.now(); if (recB) recB.used = performance.now();
+
+    const p = this.progress();
+    const pc = Math.max(0, Math.min(1, p));
+    const bell = Math.sin(pc * Math.PI);
+
+    /* Atmosphere starts thickening before the morph does and relaxes after it
+       ends, so the declared transition window has no edges (§15). The two
+       terms are matched at the boundary: the hold ramp reaches 0.25 exactly
+       where the morph tail begins at 0.25, so density never steps. */
+    const preroll = this.phase === "hold"
+      ? Math.max(0, 1 - this.holdLeft / Math.max(1, w.scenes[this.from].hold * 0.3))
+      : 0;
+    const shoulder = this.phase === "hold" ? preroll : Math.max(0, 1 - pc);
+    const baseFog = a.fog + (b.fog - a.fog) * pc;
+    const fog = baseFog + m.fogBoost * (bell + 0.25 * shoulder);
+
+    const alignB = this.alignOffset(pc);
+    const flow = (typeof FlowMode !== "undefined" && FlowMode.active) ? 1 : 0;
+    const coverA = Renderer.ok ? Renderer.cover(recA.w, recA.h) : [1, 1];
+    const coverB = Renderer.ok && recB ? Renderer.cover(recB.w, recB.h) : coverA;
+
+    return {
+      texA: recA.tex, texB: recB ? recB.tex : recA.tex,
+      coverA: coverA, coverB: coverB,
+      frameA: a.frame || [0, 0], frameB: b.frame || [0, 0],
+      alignB: alignB,
+      time: this.clock,
+      p: p,
+      cam: Camera.uniform(),
+      depthA: [depthMode(a), a.horizon, a.depth.luma, a.depth.sign > 0 ? 1 : 0],
+      depthB: [depthMode(b), b.horizon, b.depth.luma, b.depth.sign > 0 ? 1 : 0],
+      region: [m.fgHold, m.span, m.order === "nearToFar" ? 1 : 0, m.maskAmp],
+      maskType: MASK_INDEX[m.mask] || 0,
+      warp: [m.disp * (1 + flow * 2.8), m.parallax * (1 + flow * 1.8), w.water * (1 + flow * 0.55), this.quality > 0 ? 0.012 : 0.006],
+      gradeA: Colour.grade(a), gradeB: Colour.grade(b),
+      tintA: a.tint, tintB: b.tint,
+      midTint: Colour.midTint(a, b, m.colorMid),
+      bridge: [m.expBridge, m.colorBridge, m.lumaBridge],
+      lumaMean: [a.lum, b.lum],
+      world: WORLD_INDEX[w.id],
+      atmos: [fog + flow * 0.055, w.particles * (1 + flow * 0.35), w.glow * (1 + flow * 0.30), w.drift * (1 + flow * 1.65)],
+      fogColor: w.fogColor,
+      micro: Atmos.uniform(),
+      quality: this.quality,
+      debug: this.debug,
+      show: [Dev.layers.A ? 1 : 0, Dev.layers.B ? 1 : 0, Dev.layers.atmos ? 1 : 0, Dev.layers.grade ? 1 : 0],
+      show2: [Dev.layers.disp ? 1 : 0, Dev.layers.par ? 1 : 0]
+    };
+  }
+};
+
+function depthMode(scene) {
+  const m = scene.depth.mode;
+  return m === "horizon" ? 0 : m === "radial" ? 1 : m === "linear" ? 2 : 3;
+}
+
+/* ---------------------------------------------------------------------------
+   CSS FALLBACK COMPOSITOR
+   Region-staggered reveal + persistent camera + atmosphere overlay (§33 Low).
+--------------------------------------------------------------------------- */
+
+const Fallback = {
+  bands: null,
+  setImage(el, scene) {
+    const src = IMG(scene.src);
+    if (el.dataset.src === src) return;
+    el.dataset.src = src;
+    el.style.backgroundImage = 'url("' + src + '")';
+    el.style.backgroundPosition = "50% " + Math.round(scene.horizon * 100) + "%";
+  },
+  init() {
+    this.camWrap = document.getElementById("camWrap");
+    this.layerA = document.getElementById("layerA");
+    this.bands = [document.getElementById("bFar"), document.getElementById("bMid"), document.getElementById("bNear")];
+  },
+  render() {
+    if (!Engine.started) return;
+    const w = Engine.world();
+    const a = w.scenes[Engine.from], b = w.scenes[Engine.to];
+    const p = Math.max(0, Math.min(1, Engine.progress()));
+    const m = Engine.meta || pairMeta(w, Engine.from, Engine.to);
+
+    this.setImage(this.layerA, a);
+
+    const lags = m.order === "nearToFar" ? [1, 0.5, 0] : [0, 0.5, 1];
+    this.bands.forEach((el, i) => {
+      this.setImage(el, b);
+      const t0 = lags[i] * m.fgHold;
+      const t1 = t0 + m.span;
+      const lp = t1 <= t0 ? 0 : Math.max(0, Math.min(1, (p - t0) / (t1 - t0)));
+      const e = lp * lp * (3 - 2 * lp);
+      el.style.opacity = String(e);
+      el.style.filter = "blur(" + ((1 - e) * 7).toFixed(2) + "px)";
+    });
+    this.layerA.style.filter = "blur(" + (Math.sin(p * Math.PI) * 4).toFixed(2) + "px)";
+
+    const s = Camera.scale, x = (Camera.x * 100).toFixed(3), y = (Camera.y * 100).toFixed(3);
+    this.camWrap.style.transform = "scale(" + s.toFixed(4) + ") translate3d(" + x + "%," + y + "%,0)";
+  }
+};
+
+/* ---------------------------------------------------------------------------
+   SIMILARITY ANALYZER (§24) — developer-only, metadata plus pixel evidence
+--------------------------------------------------------------------------- */
+
+const Analyzer = {
+  cache: new Map(),
+  sample(rec) {
+    if (!rec || !rec.img) return null;
+    const key = rec.img.src;
+    if (this.cache.has(key)) return this.cache.get(key);
+    const N = 32;
+    const c = document.createElement("canvas");
+    c.width = N; c.height = N;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    let data;
+    try {
+      ctx.drawImage(rec.img, 0, 0, N, N);
+      data = ctx.getImageData(0, 0, N, N).data;
+    } catch (e) { return null; }   // cross-origin readback blocked
+
+    const lumaGrid = new Float32Array(N * N);
+    let rs = 0, gs = 0, bs = 0;
+    const hist = new Float32Array(16);
+    for (let i = 0, px = 0; i < data.length; i += 4, px++) {
+      const r = data[i] / 255, g = data[i+1] / 255, b = data[i+2] / 255;
+      rs += r; gs += g; bs += b;
+      const l = 0.2126*r + 0.7152*g + 0.0722*b;
+      lumaGrid[px] = l;
+      hist[Math.min(15, Math.floor(l * 16))] += 1;
+    }
+    const n = N * N;
+    for (let i = 0; i < 16; i++) hist[i] /= n;
+
+    // Edge energy + horizon estimate from row-mean gradient.
+    let edge = 0;
+    const rowMean = new Float32Array(N);
+    for (let y = 0; y < N; y++) {
+      let sum = 0;
+      for (let x = 0; x < N; x++) {
+        const v = lumaGrid[y*N + x];
+        sum += v;
+        if (x > 0) edge += Math.abs(v - lumaGrid[y*N + x - 1]);
+        if (y > 0) edge += Math.abs(v - lumaGrid[(y-1)*N + x]);
+      }
+      rowMean[y] = sum / N;
+    }
+    edge /= (2 * n);
+    let bestY = 0, bestD = 0;
+    for (let y = 2; y < N - 2; y++) {
+      const d = Math.abs(rowMean[y+2] - rowMean[y-2]);
+      if (d > bestD) { bestD = d; bestY = y; }
+    }
+
+    // 8x8 average hash.
+    const H = 8; const small = new Float32Array(H*H); let avg = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < H; x++) {
+      let s = 0;
+      for (let yy = 0; yy < 4; yy++) for (let xx = 0; xx < 4; xx++) s += lumaGrid[(y*4+yy)*N + (x*4+xx)];
+      small[y*H+x] = s / 16; avg += s / 16;
+    }
+    avg /= (H*H);
+    let bits = "";
+    for (let i = 0; i < H*H; i++) bits += small[i] > avg ? "1" : "0";
+
+    const out = {
+      rgb: [rs/n, gs/n, bs/n],
+      lum: (0.2126*rs + 0.7152*gs + 0.0722*bs) / n,
+      hist: hist, edge: edge, horizon: bestY / (N - 1), hash: bits
+    };
+    this.cache.set(key, out);
+    return out;
+  },
+
+  compare(world, ai, bi) {
+    const a = world.scenes[ai], b = world.scenes[bi];
+    const A = this.sample(assets.get(IMG(a.src)));
+    const B = this.sample(assets.get(IMG(b.src)));
+    const authored = pairMeta(world, ai, bi).score;
+    const meta = autoScore(world, ai, bi);
+    if (!A || !B) {
+      return { authored: authored, meta: meta, pixel: null,
+               note: "pixel analysis unavailable (image not readable)" };
+    }
+    let histD = 0;
+    for (let i = 0; i < 16; i++) histD += Math.min(A.hist[i], B.hist[i]);
+    let ham = 0;
+    for (let i = 0; i < A.hash.length; i++) if (A.hash[i] !== B.hash[i]) ham++;
+    const colourD = (Math.abs(A.rgb[0]-B.rgb[0]) + Math.abs(A.rgb[1]-B.rgb[1]) + Math.abs(A.rgb[2]-B.rgb[2])) / 3;
+    const lumD = Math.abs(A.lum - B.lum);
+    const edgeD = Math.abs(A.edge - B.edge);
+    const horD = Math.abs(A.horizon - B.horizon);
+
+    const pixel = Math.max(0, Math.min(1,
+      1 - (colourD*2.2 + lumD*1.6 + edgeD*1.4 + horD*1.5 + (1-histD)*0.8 + (ham/64)*0.7) / 2.4
+    ));
+    return {
+      authored: authored, meta: meta, pixel: pixel,
+      horizonA: A.horizon, horizonB: B.horizon,
+      lumA: A.lum, lumB: B.lum,
+      colourD: colourD, edgeD: edgeD, hamming: ham, histOverlap: histD,
+      note: null
+    };
+  }
+};
+
+/* ---------------------------------------------------------------------------
+   UI
+--------------------------------------------------------------------------- */
+
+const UI = {
+  selector: document.getElementById("selector"),
+  loading: document.getElementById("loading"),
+  hud: document.getElementById("hud"),
+  worldName: document.getElementById("worldName"),
+  sceneCount: document.getElementById("sceneCount"),
+  status: document.getElementById("status"),
+  hint: document.getElementById("hint"),
+  soundGlyph: document.getElementById("soundGlyph"),
+  pauseGlyph: document.getElementById("pauseGlyph"),
+  worldGlyph: document.getElementById("worldGlyph"),
+  flowGlyph: document.getElementById("flowGlyph"),
+  uiTimer: null, hintTimer: null,
+
+  init() {
+    this.soundGlyph.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M16 9.5c1.2 1.5 1.2 3.5 0 5"/><path d="M18.7 7c2.6 2.8 2.6 7.2 0 10"/></svg>';
+    this.pauseGlyph.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg>';
+    this.worldGlyph.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 8h14M5 16h14"/><circle cx="9" cy="8" r="1.6"/><circle cx="15" cy="16" r="1.6"/></svg>';
+    this.updateFlowIcon();
+
+    WORLDS.forEach((w, i) => {
+      const b = document.createElement("button");
+      b.className = "world-tile";
+      b.style.setProperty("--tile-img", 'url("' + IMG(w.scenes[0].src) + '")');
+      b.innerHTML = '<span class="tile-label">' + w.name + "</span>";
+      b.setAttribute("aria-label", "Enter " + w.name);
+      b.addEventListener("click", () => Engine.enterWorld(i));
+      this.selector.appendChild(b);
+    });
+  },
+
+  showUI(delay) {
+    if (!Engine.started) return;
+    this.hud.classList.remove("ui-hidden");
+    clearTimeout(this.uiTimer);
+    this.uiTimer = setTimeout(() => this.hud.classList.add("ui-hidden"), delay || 3000);
+  },
+  toggleUI() {
+    if (this.hud.classList.contains("ui-hidden")) this.showUI();
+    else { clearTimeout(this.uiTimer); this.hud.classList.add("ui-hidden"); }
+  },
+  flashHint() {
+    this.hint.classList.add("show");
+    clearTimeout(this.hintTimer);
+    this.hintTimer = setTimeout(() => this.hint.classList.remove("show"), 2600);
+  },
+  updatePauseIcon() {
+    this.pauseGlyph.innerHTML = Engine.paused
+      ? '<svg viewBox="0 0 24 24"><path d="M8 6l10 6-10 6V6z"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg>';
+  },
+  updateFlowIcon() {
+    const active = typeof FlowMode !== "undefined" && FlowMode.active;
+    this.flowGlyph.innerHTML = active
+      ? '<svg viewBox="0 0 24 24"><path d="M3 12c3.5-5.5 14.5-5.5 18 0"/><path d="M21 12c-3.5 5.5-14.5 5.5-18 0"/><path d="M12 8.5c1.8 1 2.7 2.2 2.7 3.5S13.8 14.5 12 15.5"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M3 12c3.5-5.5 14.5-5.5 18 0" opacity=".55"/><path d="M21 12c-3.5 5.5-14.5 5.5-18 0" opacity=".55"/><path d="M12 8.5c1.8 1 2.7 2.2 2.7 3.5S13.8 14.5 12 15.5" opacity=".55"/></svg>';
+    const btn = document.getElementById("flowBtn");
+    if (btn) btn.classList.toggle("active", !!active);
+  },
+  setStatus(text) {
+    if (text) { this.status.textContent = text; return; }
+    if (!Engine.started) return;
+    if (Engine.paused) this.status.textContent = FlowMode.active ? "paused · hyper" : "paused";
+    else if (Engine.scrub != null) this.status.textContent = "scrub";
+    else if (FlowMode.active) this.status.textContent = "hyper · morphing";
+    else this.status.textContent = "drifting";
+  },
+  showSelector() {
+    Engine.started = false;
+    if (typeof FlowMode !== "undefined") FlowMode.stop(true);
+    this.selector.classList.remove("hidden");
+    this.hud.classList.add("ui-hidden");
+  }
+};
+
+const FlowMode = {
+  active: false,
+  morphSeconds: 3,
+  previousSpeed: 1,
+  toggle(force) {
+    const next = typeof force === "boolean" ? force : !this.active;
+    if (next === this.active) return;
+    this.active = next;
+
+    if (this.active) {
+      this.previousSpeed = Engine.timeScale || 1;
+      Engine.timeScale = 1;
+      document.body.classList.add("flow-active");
+      this.forceMorph(true);
+    } else {
+      document.body.classList.remove("flow-active");
+      Engine.timeScale = this.previousSpeed || 1;
+      // Return the current pair to its authored production duration without snapping progress.
+      if (Engine.started && Engine.phase === "morph") {
+        const p = Math.max(0, Math.min(1, Engine.morphT / Math.max(0.001, Engine.morphDur)));
+        const authored = pairMeta(Engine.world(), Engine.from, Engine.to).morph;
+        Engine.morphDur = authored;
+        Engine.morphT = p * authored;
+      }
+    }
+    UI.updateFlowIcon();
+    UI.setStatus();
+    UI.showUI(2400);
+  },
+  stop(silent) {
+    if (!this.active) return;
+    this.active = false;
+    document.body.classList.remove("flow-active");
+    Engine.timeScale = this.previousSpeed || 1;
+    if (!silent) { UI.updateFlowIcon(); UI.setStatus(); }
+    else if (typeof UI !== "undefined") UI.updateFlowIcon();
+  },
+  destinationReady() {
+    if (!Engine.started) return false;
+    const w = Engine.world();
+    const scene = w.scenes[Engine.to];
+    const key = IMG(scene.src);
+    const rec = assets.get(key);
+    if (rec && rec.ready) return true;
+    loadAsset(key);
+    return false;
+  },
+  forceMorph(preserveProgress) {
+    if (!this.active || !Engine.started || Engine.paused || Engine.scrub != null) return;
+    if (!this.destinationReady()) return;
+
+    if (Engine.phase !== "morph") {
+      Engine.beginMorph();
+      Engine.morphDur = this.morphSeconds;
+      Engine.morphT = 0;
+    } else {
+      const p = preserveProgress ? Math.max(0, Math.min(1, Engine.morphT / Math.max(0.001, Engine.morphDur))) : 0;
+      Engine.morphDur = this.morphSeconds;
+      Engine.morphT = p * this.morphSeconds;
+    }
+  },
+  step() {
+    if (!this.active || !Engine.started || Engine.paused || Engine.scrub != null) return;
+
+    // Engine.completeMorph() intentionally lands on a normal hold state.
+    // Hyper immediately converts that hold into the next REAL morph once B is loaded.
+    if (Engine.phase === "hold") this.forceMorph(false);
+    else if (Math.abs(Engine.morphDur - this.morphSeconds) > 0.001) this.forceMorph(true);
+
+    if (Engine.phase === "morph") {
+      const remain = Math.max(0, Engine.morphDur - Engine.morphT);
+      UI.setStatus("hyper · morph " + remain.toFixed(1) + "s");
+    } else {
+      UI.setStatus("hyper · loading next");
+    }
+  }
+};
+
+/* ---------------------------------------------------------------------------
+   DEV CONTROLLER (§25/§26/§27)
+--------------------------------------------------------------------------- */
+
+const Dev = {
+  open: false,
+  layers: { A: true, B: true, atmos: true, grade: true, disp: true, par: true },
+  el: {},
+  SPEEDS: [0.25, 0.5, 1, 2, 4, 8, 16],
+
+  init() {
+    const id = s => document.getElementById(s);
+    this.el = {
+      panel: id("devPanel"), toggle: id("devToggle"), readout: id("devReadout"),
+      speed: id("devSpeed"), presets: id("devSpeedPresets"),
+      world: id("devWorld"), scene: id("devScene"), prev: id("devPrev"), next: id("devNext"),
+      scrub: id("devScrub"), scrubRelease: id("devScrubRelease"),
+      order: id("devOrder"), mask: id("devMask"),
+      analyze: id("devAnalyze"), exportBtn: id("devExport"), stats: id("devStats")
+    };
+    this.sliders = [
+      ["tMorph", "vMorph", "morph", v => v.toFixed(0) + "s"],
+      ["tFgHold", "vFgHold", "fgHold", v => v.toFixed(2)],
+      ["tSpan", "vSpan", "span", v => v.toFixed(2)],
+      ["tMask", "vMask", "maskAmp", v => v.toFixed(3)],
+      ["tDisp", "vDisp", "disp", v => v.toFixed(3)],
+      ["tPar", "vPar", "parallax", v => v.toFixed(3)],
+      ["tFog", "vFog", "fogBoost", v => v.toFixed(2)],
+      ["tExp", "vExp", "expBridge", v => v.toFixed(2)],
+      ["tAlign", "vAlign", "align", v => v.toFixed(2)]
+    ];
+
+    WORLDS.forEach((w, i) => {
+      const o = document.createElement("option");
+      o.value = String(i); o.textContent = w.name;
+      this.el.world.appendChild(o);
+    });
+
+    this.el.toggle.addEventListener("click", e => { e.stopPropagation(); this.toggle(); });
+    this.el.panel.addEventListener("click", e => e.stopPropagation());
+    this.el.panel.addEventListener("touchstart", e => e.stopPropagation(), { passive: true });
+
+    this.el.speed.addEventListener("input", () => this.setSpeed(this.SPEEDS[Number(this.el.speed.value)]));
+    this.el.presets.addEventListener("click", e => {
+      const b = e.target.closest("[data-speed]");
+      if (b) this.setSpeed(Number(b.dataset.speed));
+    });
+    this.el.world.addEventListener("change", () => Engine.enterWorld(Number(this.el.world.value)));
+    this.el.scene.addEventListener("change", () => this.jump(Number(this.el.scene.value)));
+    this.el.prev.addEventListener("click", () => this.jump(Engine.from - 1));
+    this.el.next.addEventListener("click", () => this.jump(Engine.from + 1));
+
+    this.el.scrub.addEventListener("input", () => {
+      Engine.scrub = Number(this.el.scrub.value) / 1000;
+      UI.status.textContent = "scrub " + Math.round(Engine.scrub * 100) + "%";
+      if (Engine.phase !== "morph") { Engine.phase = "morph"; Engine.morphT = 0; }
+    });
+    this.el.panel.querySelectorAll("[data-scrub]").forEach(b => {
+      b.addEventListener("click", () => {
+        Engine.scrub = Number(b.dataset.scrub);
+        this.el.scrub.value = String(Math.round(Engine.scrub * 1000));
+        if (Engine.phase !== "morph") { Engine.phase = "morph"; Engine.morphT = 0; }
+        UI.status.textContent = "scrub " + Math.round(Engine.scrub * 100) + "%";
+      });
+    });
+    this.el.scrubRelease.addEventListener("click", () => this.releaseScrub());
+
+    this.sliders.forEach(([inId, outId, key, fmt]) => {
+      const input = document.getElementById(inId);
+      const out = document.getElementById(outId);
+      input.addEventListener("input", () => {
+        const v = Number(input.value);
+        this.setOverride(key, v);
+        out.textContent = fmt(v);
+      });
+    });
+    this.el.order.addEventListener("change", () => this.setOverride("order", this.el.order.value));
+    this.el.mask.addEventListener("change", () => this.setOverride("mask", this.el.mask.value));
+
+    [["lyA","A"],["lyB","B"],["lyAtmos","atmos"],["lyGrade","grade"],["lyDisp","disp"],["lyPar","par"]]
+      .forEach(([elId, key]) => {
+        document.getElementById(elId).addEventListener("change", e => { this.layers[key] = e.target.checked; });
+      });
+
+    this.el.panel.querySelectorAll("[data-debug]").forEach(b => {
+      b.addEventListener("click", () => {
+        Engine.debug = Number(b.dataset.debug);
+        this.el.panel.querySelectorAll("[data-debug]").forEach(x => x.classList.toggle("active", x === b));
+      });
+    });
+
+    this.el.analyze.addEventListener("click", () => this.analyze());
+    this.el.exportBtn.addEventListener("click", () => this.exportMeta());
+  },
+
+  toggle(force) {
+    this.open = typeof force === "boolean" ? force : !this.open;
+    this.el.panel.classList.toggle("dev-hidden", !this.open);
+    this.el.toggle.style.opacity = this.open ? "1" : "";
+    if (this.open) this.refresh();
+  },
+
+  setSpeed(v) {
+    Engine.timeScale = Math.max(0.25, Math.min(16, v || 1));
+    const idx = this.SPEEDS.indexOf(Engine.timeScale);
+    if (idx >= 0) this.el.speed.value = String(idx);
+    this.el.readout.textContent = Engine.timeScale + "×";
+    this.el.presets.querySelectorAll("[data-speed]").forEach(b =>
+      b.classList.toggle("active", Number(b.dataset.speed) === Engine.timeScale));
+  },
+
+  releaseScrub() {
+    if (Engine.scrub == null) return;
+    Engine.morphT = Engine.scrub * Engine.morphDur;
+    Engine.scrub = null;
+    UI.setStatus();
+  },
+
+  async jump(target) {
+    if (!Engine.started) return;
+    const w = Engine.world();
+    const i = ((target % w.scenes.length) + w.scenes.length) % w.scenes.length;
+    Engine.from = i;
+    Engine.to = Scenes.next(w, i);
+    Engine.phase = "hold";
+    Engine.holdLeft = w.scenes[i].hold * 0.15;
+    Engine.morphT = 0;
+    Engine.scrub = null;
+    await Promise.all([loadAsset(IMG(w.scenes[Engine.from].src)), loadAsset(IMG(w.scenes[Engine.to].src))]);
+    Engine.meta = pairMeta(w, Engine.from, Engine.to);
+    Engine.morphDur = Engine.meta.morph;
+    UI.sceneCount.textContent = Engine.countLabel();
+    Engine.preloadAhead();
+    this.refresh();
+  },
+
+  key() { return Engine.world().id + ":" + pairKey(Engine.from, Engine.to); },
+
+  setOverride(key, value) {
+    const k = this.key();
+    if (!overrides[k]) overrides[k] = {};
+    overrides[k][key] = value;
+    Engine.meta = pairMeta(Engine.world(), Engine.from, Engine.to);
+    if (key === "morph") Engine.morphDur = value;
+  },
+
+  refresh() {
+    if (!this.el.scene) return;
+    this.statsOverride = null;
+    const w = Engine.world();
+    this.el.scene.innerHTML = w.scenes.map((s, i) =>
+      '<option value="' + i + '">' + String(i+1).padStart(2,"0") + " · " + s.note + "</option>").join("");
+    this.el.scene.value = String(Engine.from);
+    this.el.world.value = String(Engine.worldIndex);
+    const m = Engine.meta || pairMeta(w, Engine.from, Engine.to);
+    this.sliders.forEach(([inId, outId, key, fmt]) => {
+      const input = document.getElementById(inId);
+      const out = document.getElementById(outId);
+      input.value = String(m[key]);
+      out.textContent = fmt(Number(m[key]));
+    });
+    this.el.order.value = m.order;
+    this.el.mask.value = m.mask;
+  },
+
+  analyze() {
+    const w = Engine.world();
+    const r = Analyzer.compare(w, Engine.from, Engine.to);
+    const lines = [];
+    lines.push("pair " + pairKey(Engine.from, Engine.to) + " · " + (Engine.meta ? Engine.meta.archetype : ""));
+    lines.push("authored score  " + r.authored.toFixed(2));
+    lines.push("metadata score  " + r.meta.toFixed(2));
+    if (r.pixel == null) {
+      lines.push(r.note);
+    } else {
+      lines.push("pixel score     " + r.pixel.toFixed(2));
+      lines.push("horizon  A " + r.horizonA.toFixed(2) + "  B " + r.horizonB.toFixed(2) + "  Δ " + Math.abs(r.horizonA-r.horizonB).toFixed(2));
+      lines.push("luma     A " + r.lumA.toFixed(2) + "  B " + r.lumB.toFixed(2));
+      lines.push("colour Δ " + r.colourD.toFixed(3) + "  edge Δ " + r.edgeD.toFixed(3));
+      lines.push("hash distance " + r.hamming + "/64  hist overlap " + r.histOverlap.toFixed(2));
+      const worst = Math.min(r.authored, r.meta, r.pixel);
+      if (worst < MIN_SCORE) lines.push("\nLOW CONTINUITY PAIR — bridge scene or re-order recommended");
+      if (Math.abs(r.horizonA - r.horizonB) > 0.12) lines.push("horizon mismatch — raise align or re-crop");
+      if (Math.abs(r.lumA - r.lumB) > 0.18) lines.push("luminance jump — raise luma bridge or insert a mid state");
+    }
+    this.statsOverride = lines.join("\n");
+  },
+
+  exportMeta() {
+    const out = {};
+    Object.keys(overrides).forEach(k => {
+      const [wid, pk] = k.split(":");
+      if (!out[wid]) out[wid] = {};
+      out[wid][pk] = Object.assign({}, pairMeta(WORLDS.find(w => w.id === wid),
+        Number(pk.split(">")[0]), Number(pk.split(">")[1])));
+    });
+    const text = JSON.stringify(out, null, 2);
+    const done = () => { this.el.exportBtn.textContent = "Copied"; setTimeout(() => { this.el.exportBtn.textContent = "Copy metadata"; }, 1400); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => { console.log(text); done(); });
+    } else { console.log(text); done(); }
+  },
+
+  statsOverride: null,
+
+  tick() {
+    if (!this.open || !this.el.stats) return;
+    if (this.statsOverride) { this.el.stats.textContent = this.statsOverride; return; }
+    const w = Engine.world();
+    const m = Engine.meta || pairMeta(w, Engine.from, Engine.to);
+    const p = Engine.progress() / P_END;
+    this.el.stats.textContent =
+      "world     " + w.id + (Engine.fallback ? "  [css fallback]" : "  [webgl]") + "\n" +
+      "scene     " + String(Engine.from+1).padStart(2,"0") + " → " + String(Engine.to+1).padStart(2,"0") + "  " + m.archetype + "\n" +
+      "phase     " + Engine.phase + (Engine.scrub != null ? " (scrubbed)" : "") + "\n" +
+      "progress  " + (p*100).toFixed(1) + "%  of " + m.morph + "s\n" +
+      "hold left " + Math.max(0, Engine.holdLeft).toFixed(1) + "s\n" +
+      "score     " + m.score.toFixed(2) + (m.score < MIN_SCORE ? "  LOW CONTINUITY PAIR" : "") + "\n" +
+      "fps       " + Engine.fps.toFixed(0) + "   quality " + ["low","medium","high"][Engine.quality];
+  }
+};
+
+/* ---------------------------------------------------------------------------
+   AUDIO — preserved from V1 (§43)
+--------------------------------------------------------------------------- */
+
+const Audio = {
+  ctx: null, master: null, noise: null, osc1: null, osc2: null, on: false,
+  noiseBuffer(ctx) {
+    const buffer = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
+    const d = buffer.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < d.length; i++) { const white = Math.random()*2-1; last = (last + 0.02*white)/1.02; d[i] = last*3.5; }
+    return buffer;
+  },
+  start() {
+    if (this.ctx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    this.ctx = new AC();
+    this.master = this.ctx.createGain(); this.master.gain.value = 0.12;
+    this.master.connect(this.ctx.destination);
+    this.noise = this.ctx.createBufferSource();
+    this.noise.buffer = this.noiseBuffer(this.ctx); this.noise.loop = true; this.noise.start();
+    this.retune();
+  },
+  kill(n) { if (!n) return; try { n.disconnect(); } catch(e){} try { n.stop(); } catch(e){} },
+  retune() {
+    if (!this.ctx || !this.master) return;
+    this.kill(this.osc1); this.kill(this.osc2);
+    try { this.noise.disconnect(); } catch(e){}
+    const id = Engine.world().id;
+    const filt = this.ctx.createBiquadFilter(); const g = this.ctx.createGain();
+    g.gain.value = id === "orbit" ? 0.02 : (id === "abyss" ? 0.065 : (id === "veil" ? 0.04 : 0.07));
+    if (id === "beach") { filt.type = "bandpass"; filt.frequency.value = 520; filt.Q.value = 0.5; }
+    if (id === "abyss") { filt.type = "lowpass"; filt.frequency.value = 420; filt.Q.value = 0.7; }
+    if (id === "veil")  { filt.type = "bandpass"; filt.frequency.value = 950; filt.Q.value = 0.35; }
+    if (id === "orbit") { filt.type = "lowpass"; filt.frequency.value = 180; filt.Q.value = 0.5; }
+    this.noise.connect(filt); filt.connect(g); g.connect(this.master);
+    if (id === "abyss" || id === "orbit") {
+      this.osc1 = this.ctx.createOscillator(); this.osc2 = this.ctx.createOscillator();
+      const og = this.ctx.createGain(); og.gain.value = id === "orbit" ? 0.045 : 0.022; og.connect(this.master);
+      this.osc1.type = "sine"; this.osc2.type = "sine";
+      this.osc1.frequency.value = id === "orbit" ? 48 : 54;
+      this.osc2.frequency.value = id === "orbit" ? 72 : 82;
+      this.osc1.connect(og); this.osc2.connect(og); this.osc1.start(); this.osc2.start();
+    }
+    this.master.gain.setTargetAtTime(this.on ? 0.12 : 0.0001, this.ctx.currentTime, 0.4);
+  },
+  toggle() {
+    if (!this.ctx) this.start();
+    this.on = !this.on;
+    if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
+    if (this.master) this.master.gain.setTargetAtTime(this.on ? 0.12 : 0.0001, this.ctx.currentTime, 0.25);
+    this.icon(); UI.showUI();
+  },
+  icon() {
+    UI.soundGlyph.innerHTML = this.on
+      ? '<svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M16 9.5c1.2 1.5 1.2 3.5 0 5"/><path d="M18.7 7c2.6 2.8 2.6 7.2 0 10"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M17 10l4 4M21 10l-4 4"/></svg>';
+  }
+};
+
+/* ---------------------------------------------------------------------------
+   BOOT + MAIN LOOP
+--------------------------------------------------------------------------- */
+
+UI.init();
+Fallback.init();
+Dev.init();
+Audio.icon();
+
+if (/[?&]prod\b/.test(location.search)) document.body.classList.add("prod");
+
+const canvas = document.getElementById("gl");
+const mq = q => (window.matchMedia ? window.matchMedia(q).matches : false);
+const mobile = MOBILE_DEVICE;
+Renderer.dprCap = mobile ? 1.25 : 1.5;
+Engine.quality = mobile ? 1 : 2;
+
+if (!Renderer.init(canvas)) {
+  Engine.degrade("webgl unavailable");
+} else {
+  Renderer.resize();
+}
+if (mq("(prefers-reduced-motion: reduce)")) {
+  Engine.quality = Math.min(Engine.quality, 1);
+}
+
+window.addEventListener("resize", () => Renderer.resize());
+if (window.visualViewport) window.visualViewport.addEventListener("resize", () => Renderer.resize(), { passive:true });
+canvas.addEventListener("webglcontextlost", e => { e.preventDefault(); Engine.degrade("webgl context lost"); }, { passive:false });
+
+function togglePause() {
+  if (!Engine.started) return;
+  Engine.paused = !Engine.paused;
+  UI.setStatus();
+  UI.updatePauseIcon();
+  UI.showUI();
+}
+
+let last = performance.now();
+let frameAcc = 0, frameN = 0;
+
+function loop(now) {
+  const dtReal = Math.min(0.1, (now - last) / 1000);
+  last = now;
+
+  frameAcc += dtReal; frameN++;
+  if (frameN >= 45) {
+    Engine.fps = frameN / frameAcc;
+    // Adaptive quality: protect the illusion by protecting the frame rate (§32)
+    if (Engine.fps < 34 && Engine.quality > 0) {
+      Engine.quality--;
+      Renderer.dprCap = Math.max(0.8, Renderer.dprCap - 0.3);
+      Renderer.w = 0; Renderer.resize();
+    }
+    frameAcc = 0; frameN = 0;
+  }
+
+  Engine.step(dtReal);
+  FlowMode.step();
+
+  if (Engine.started) {
+    if (Renderer.ok) {
+      const state = Engine.frameState();
+      if (state && state.texA) Renderer.draw(state);
+      else if (!state) { /* still loading */ }
+    } else {
+      Fallback.render();
+    }
+  }
+  Dev.tick();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* --------------------------- INPUT (§42, preserved) ---------------------- */
+
+document.addEventListener("mousemove", () => UI.showUI());
+
+// A tap fires touchend and then a synthetic click; without this guard the
+// interface would toggle twice and appear not to respond at all.
+let lastTouch = 0;
+document.getElementById("viewer").addEventListener("click", () => {
+  if (performance.now() - lastTouch < 600) return;
+  UI.toggleUI();
+});
+
+document.addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  if (e.key === "ArrowRight") Engine.enterWorld(Engine.worldIndex + 1);
+  else if (e.key === "ArrowLeft") Engine.enterWorld(Engine.worldIndex - 1);
+  else if (e.code === "Space") { e.preventDefault(); togglePause(); }
+  else if (k === "m") Audio.toggle();
+  else if (k === "f") {
+    if (!document.fullscreenElement) { if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); }
+    else if (document.exitFullscreen) document.exitFullscreen();
+  }
+  else if (k === "n") Dev.jump(Engine.from + 1);
+  else if (k === "p") Dev.jump(Engine.from - 1);
+  else if (k === "d") Dev.toggle();
+  else if (k === "s") { if (Engine.scrub == null) { Engine.scrub = 0; Dev.el.scrub.value = "0"; } else Dev.releaseScrub(); }
+  else if (k === "g") {  // glance test: jump forward ten minutes of world time
+    Engine.morphT = 0; Engine.phase = "morph"; Dev.setSpeed(16);
+    setTimeout(() => Dev.setSpeed(1), 45000);
+  }
+  else if (k === "h") FlowMode.toggle();
+  else if (e.key === "]") Dev.setSpeed(Dev.SPEEDS[Math.min(Dev.SPEEDS.length-1, Dev.SPEEDS.indexOf(Engine.timeScale)+1)]);
+  else if (e.key === "[") Dev.setSpeed(Dev.SPEEDS[Math.max(0, Dev.SPEEDS.indexOf(Engine.timeScale)-1)]);
+  else if (e.key === "1") Dev.setSpeed(1);
+  else if (e.key === "Escape" && Dev.open) Dev.toggle(false);
+  else if (e.key === "Escape" && Engine.started && !document.fullscreenElement) UI.showSelector();
+});
+
+document.getElementById("soundBtn").addEventListener("click", e => { e.stopPropagation(); Audio.toggle(); });
+document.getElementById("pauseBtn").addEventListener("click", e => { e.stopPropagation(); togglePause(); });
+document.getElementById("worldBtn").addEventListener("click", e => { e.stopPropagation(); UI.showSelector(); });
+document.getElementById("flowBtn").addEventListener("click", e => { e.stopPropagation(); FlowMode.toggle(); });
+
+let touchStartX = 0, touchStartY = 0, longPressTimer = null, touchGesture = false;
+const viewer = document.getElementById("viewer");
+viewer.addEventListener("touchstart", e => {
+  if (!Engine.started || e.touches.length !== 1) { touchGesture = false; return; }
+  touchGesture = true;
+  touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY;
+  clearTimeout(longPressTimer);
+  longPressTimer = setTimeout(() => { if (touchGesture) togglePause(); longPressTimer = null; }, 650);
+}, { passive:true });
+viewer.addEventListener("touchmove", e => {
+  if (!touchGesture) return;
+  const t = e.touches[0];
+  if (!t || Math.hypot(t.clientX-touchStartX,t.clientY-touchStartY) > 10) {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+  }
+}, { passive:true });
+viewer.addEventListener("touchend", e => {
+  if (!Engine.started || !touchGesture) return;
+  touchGesture = false; lastTouch = performance.now();
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+  const t = e.changedTouches[0]; if (!t) return;
+  const dx = t.clientX - touchStartX, dy = t.clientY - touchStartY;
+  if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy)*1.25) Engine.enterWorld(Engine.worldIndex + (dx < 0 ? 1 : -1));
+  else if (Math.abs(dx) < 12 && Math.abs(dy) < 12) UI.toggleUI();
+}, { passive:true });
+viewer.addEventListener("touchcancel", () => {
+  touchGesture = false;
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+}, { passive:true });
+
+document.addEventListener("visibilitychange", () => {
+  last = performance.now();
+  if (!document.hidden) { Renderer.w = 0; Renderer.resize(); }
+});
+
+// Warm the selector tiles, then wait for the user to choose a world.
+WORLDS.forEach(w => loadAsset(IMG(w.scenes[0].src)));
+setTimeout(() => UI.loading.classList.add("hidden"), 600);
+
+})();
+</script>
+</body>
+</html>
