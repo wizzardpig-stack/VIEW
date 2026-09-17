@@ -157,7 +157,7 @@
     opacity:.35; transition:opacity 180ms ease;
   }
   #devToggle:hover { opacity:1; }
-  body.prod #devToggle { display:none; }
+  body:not(.dev-mode) #devToggle, body:not(.dev-mode) #devPanel { display:none !important; }
   #devPanel {
     position:absolute; z-index:40; right:14px; bottom:48px; width:min(360px,calc(100vw - 28px));
     max-height:calc(100vh - 80px); overflow-y:auto; overscroll-behavior:contain;
@@ -204,8 +204,11 @@
     .selector-brand { top:calc(env(safe-area-inset-top) + 12px); left:calc(env(safe-area-inset-left) + 18px); }
     .world-tile:last-of-type .tile-label { bottom:calc(env(safe-area-inset-bottom) + 14px); }
     body.flow-active #viewer { filter:none; }
-    #overlayFx::before { filter:blur(22px); }
-    #overlayFx::after { filter:blur(28px); }
+    #viewer,#gl,#camWrap,body.flow-active #viewer,body.flow-active #gl,body.flow-active #camWrap { animation:none!important; transform:none!important; }
+    #overlayFx::before { filter:blur(14px); opacity:.055; }
+    #overlayFx::after { filter:blur(18px); opacity:.035; }
+    body.fx-lite #overlayFx::before { filter:blur(10px); opacity:.035; }
+    body.fx-lite #overlayFx::after { display:none; }
   }
   @media (max-height:500px) and (pointer:coarse) {
     .selector-brand { top:calc(env(safe-area-inset-top) + 10px); left:calc(env(safe-area-inset-left) + 14px); }
@@ -400,7 +403,7 @@
 
 const MOBILE_DEVICE = (window.matchMedia && window.matchMedia("(max-width: 760px)").matches) || (navigator.maxTouchPoints || 0) > 1;
 const IMG = id => {
-  const w = MOBILE_DEVICE ? 1440 : 1920, q = MOBILE_DEVICE ? 80 : 85;
+  const w = MOBILE_DEVICE ? 2400 : 2400, q = MOBILE_DEVICE ? 88 : 88;
   return "https://images.pexels.com/photos/" + id + "/pexels-photo-" + id + `.jpeg?auto=compress&cs=tinysrgb&fit=crop&w=${w}&q=${q}`;
 };
 
@@ -1167,15 +1170,21 @@ const Engine = {
     UI.worldName.textContent = w.name;
     UI.setStatus();
     UI.updatePauseIcon();
-    UI.loading.classList.remove("hidden");
-    UI.selector.classList.add("hidden");
+    UI.loading.classList.add("hidden");
 
-    await Promise.all([loadAsset(IMG(w.scenes[this.from].src)), loadAsset(IMG(w.scenes[this.to].src))]);
+    const fromSrc = IMG(w.scenes[this.from].src);
+    const toSrc = IMG(w.scenes[this.to].src);
+    const first = await loadAsset(fromSrc);
+    if (!first || first.failed || !first.ready) return;
+    UI.selector.classList.add("hidden");
+    document.body.classList.add("view-entered");
+    loadAsset(toSrc).then(() => this.preloadAhead());
+
     this.meta = pairMeta(w, this.from, this.to);
     this.morphDur = this.meta.morph;
     this.preloadAhead();
     UI.sceneCount.textContent = this.countLabel();
-    setTimeout(() => UI.loading.classList.add("hidden"), 260);
+    UI.loading.classList.add("hidden");
     UI.showUI(2400);
     UI.flashHint();
     Audio.retune();
@@ -1194,6 +1203,12 @@ const Engine = {
 
   beginMorph() {
     const w = this.world();
+    const nextRec = assets.get(IMG(w.scenes[this.to].src));
+    if (!nextRec || !nextRec.ready) {
+      loadAsset(IMG(w.scenes[this.to].src));
+      this.holdLeft = 0.75;
+      return;
+    }
     this.meta = pairMeta(w, this.from, this.to);
     this.morphDur = this.meta.morph;
     this.morphT = 0;
@@ -1255,8 +1270,9 @@ const Engine = {
     const w = this.world();
     const a = w.scenes[this.from], b = w.scenes[this.to];
     const m = this.meta || pairMeta(w, this.from, this.to);
-    const recA = assets.get(IMG(a.src)), recB = assets.get(IMG(b.src));
+    const recA = assets.get(IMG(a.src)), recB0 = assets.get(IMG(b.src));
     if (!recA || !recA.ready) return null;
+    const recB = recB0 && recB0.ready ? recB0 : null;
     recA.used = performance.now(); if (recB) recB.used = performance.now();
 
     const p = this.progress();
@@ -1913,12 +1929,13 @@ Fallback.init();
 Dev.init();
 Audio.icon();
 
-if (/[?&]prod\b/.test(location.search)) document.body.classList.add("prod");
+const DEV_MODE = /[?&]dev=1(?:&|$)/.test(location.search);
+if (DEV_MODE) document.body.classList.add("dev-mode");
 
 const canvas = document.getElementById("gl");
 const mq = q => (window.matchMedia ? window.matchMedia(q).matches : false);
 const mobile = MOBILE_DEVICE;
-Renderer.dprCap = mobile ? 1.25 : 1.5;
+Renderer.dprCap = mobile ? 2.0 : 1.75;
 Engine.quality = mobile ? 1 : 2;
 
 if (!Renderer.init(canvas)) {
@@ -1952,11 +1969,16 @@ function loop(now) {
   frameAcc += dtReal; frameN++;
   if (frameN >= 45) {
     Engine.fps = frameN / frameAcc;
-    // Adaptive quality: protect the illusion by protecting the frame rate (§32)
-    if (Engine.fps < 34 && Engine.quality > 0) {
-      Engine.quality--;
-      Renderer.dprCap = Math.max(0.8, Renderer.dprCap - 0.3);
-      Renderer.w = 0; Renderer.resize();
+    // Preserve Retina clarity: reduce shader/atmosphere cost before render resolution.
+    if (Engine.fps < 34) {
+      if (Engine.quality > 0) {
+        Engine.quality--;
+      } else if (!document.body.classList.contains("fx-lite")) {
+        document.body.classList.add("fx-lite");
+      } else if (Renderer.dprCap > 1.5) {
+        Renderer.dprCap = Math.max(1.5, Renderer.dprCap - 0.25);
+        Renderer.w = 0; Renderer.resize();
+      }
     }
     frameAcc = 0; frameN = 0;
   }
@@ -2000,18 +2022,18 @@ document.addEventListener("keydown", e => {
     if (!document.fullscreenElement) { if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); }
     else if (document.exitFullscreen) document.exitFullscreen();
   }
-  else if (k === "n") Dev.jump(Engine.from + 1);
-  else if (k === "p") Dev.jump(Engine.from - 1);
-  else if (k === "d") Dev.toggle();
-  else if (k === "s") { if (Engine.scrub == null) { Engine.scrub = 0; Dev.el.scrub.value = "0"; } else Dev.releaseScrub(); }
-  else if (k === "g") {  // glance test: jump forward ten minutes of world time
+  else if (DEV_MODE && k === "n") Dev.jump(Engine.from + 1);
+  else if (DEV_MODE && k === "p") Dev.jump(Engine.from - 1);
+  else if (DEV_MODE && k === "d") Dev.toggle();
+  else if (DEV_MODE && k === "s") { if (Engine.scrub == null) { Engine.scrub = 0; Dev.el.scrub.value = "0"; } else Dev.releaseScrub(); }
+  else if (DEV_MODE && k === "g") {  // glance test: jump forward ten minutes of world time
     Engine.morphT = 0; Engine.phase = "morph"; Dev.setSpeed(16);
     setTimeout(() => Dev.setSpeed(1), 45000);
   }
   else if (k === "h") FlowMode.toggle();
-  else if (e.key === "]") Dev.setSpeed(Dev.SPEEDS[Math.min(Dev.SPEEDS.length-1, Dev.SPEEDS.indexOf(Engine.timeScale)+1)]);
-  else if (e.key === "[") Dev.setSpeed(Dev.SPEEDS[Math.max(0, Dev.SPEEDS.indexOf(Engine.timeScale)-1)]);
-  else if (e.key === "1") Dev.setSpeed(1);
+  else if (DEV_MODE && e.key === "]") Dev.setSpeed(Dev.SPEEDS[Math.min(Dev.SPEEDS.length-1, Dev.SPEEDS.indexOf(Engine.timeScale)+1)]);
+  else if (DEV_MODE && e.key === "[") Dev.setSpeed(Dev.SPEEDS[Math.max(0, Dev.SPEEDS.indexOf(Engine.timeScale)-1)]);
+  else if (DEV_MODE && e.key === "1") Dev.setSpeed(1);
   else if (e.key === "Escape" && Dev.open) Dev.toggle(false);
   else if (e.key === "Escape" && Engine.started && !document.fullscreenElement) UI.showSelector();
 });
