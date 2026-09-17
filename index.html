@@ -157,7 +157,7 @@
     opacity:.35; transition:opacity 180ms ease;
   }
   #devToggle:hover { opacity:1; }
-  body:not(.dev-mode) #devToggle, body:not(.dev-mode) #devPanel { display:none !important; }
+  body:not(.dev-mode) #devPanel .dev-sep { display:none; }
   #devPanel {
     position:absolute; z-index:40; right:14px; bottom:48px; width:min(360px,calc(100vw - 28px));
     max-height:calc(100vh - 80px); overflow-y:auto; overscroll-behavior:contain;
@@ -205,9 +205,9 @@
     .world-tile:last-of-type .tile-label { bottom:calc(env(safe-area-inset-bottom) + 14px); }
     body.flow-active #viewer { filter:none; }
     #viewer,#gl,#camWrap,body.flow-active #viewer,body.flow-active #gl,body.flow-active #camWrap { animation:none!important; transform:none!important; }
-    #overlayFx::before { filter:blur(14px); opacity:.055; }
-    #overlayFx::after { filter:blur(18px); opacity:.035; }
-    body.fx-lite #overlayFx::before { filter:blur(10px); opacity:.035; }
+    #overlayFx::before { filter:blur(6px); opacity:.032; }
+    #overlayFx::after { filter:blur(10px); opacity:.020; }
+    body.fx-lite #overlayFx::before { filter:blur(4px); opacity:.020; }
     body.fx-lite #overlayFx::after { display:none; }
   }
   @media (max-height:500px) and (pointer:coarse) {
@@ -403,7 +403,7 @@
 
 const MOBILE_DEVICE = (window.matchMedia && window.matchMedia("(max-width: 760px)").matches) || (navigator.maxTouchPoints || 0) > 1;
 const IMG = id => {
-  const w = MOBILE_DEVICE ? 2400 : 2400, q = MOBILE_DEVICE ? 88 : 88;
+  const w = MOBILE_DEVICE ? 3200 : 2400, q = MOBILE_DEVICE ? 92 : 88;
   return "https://images.pexels.com/photos/" + id + "/pexels-photo-" + id + `.jpeg?auto=compress&cs=tinysrgb&fit=crop&w=${w}&q=${q}`;
 };
 
@@ -1935,7 +1935,7 @@ if (DEV_MODE) document.body.classList.add("dev-mode");
 const canvas = document.getElementById("gl");
 const mq = q => (window.matchMedia ? window.matchMedia(q).matches : false);
 const mobile = MOBILE_DEVICE;
-Renderer.dprCap = mobile ? 2.0 : 1.75;
+Renderer.dprCap = mobile ? 2.5 : 1.75;
 Engine.quality = mobile ? 1 : 2;
 
 if (!Renderer.init(canvas)) {
@@ -1975,8 +1975,8 @@ function loop(now) {
         Engine.quality--;
       } else if (!document.body.classList.contains("fx-lite")) {
         document.body.classList.add("fx-lite");
-      } else if (Renderer.dprCap > 1.5) {
-        Renderer.dprCap = Math.max(1.5, Renderer.dprCap - 0.25);
+      } else if (Renderer.dprCap > 2.0) {
+        Renderer.dprCap = Math.max(2.0, Renderer.dprCap - 0.25);
         Renderer.w = 0; Renderer.resize();
       }
     }
@@ -2082,7 +2082,9 @@ document.addEventListener("visibilitychange", () => {
 WORLDS.forEach(w => loadAsset(IMG(w.scenes[0].src)));
 setTimeout(() => UI.loading.classList.add("hidden"), 600);
 
+window.VIEW_INTERNAL = { Renderer, Engine, Dev, UI, FlowMode, assets, IMG, WORLDS };
 })();
 </script>
+<script src="view-public.js"></script>
 </body>
 </html>
