@@ -1,0 +1,179 @@
+name: VIEW crisp audio settings patch
+
+on:
+  push:
+    branches:
+      - fix/view-crisp-audio-settings
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/view-crisp-audio-settings
+      - name: Patch VIEW fidelity, settings, and audio react
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text()
+
+          def rep(old, new, label):
+              global s
+              if old not in s:
+                  raise SystemExit(f'missing expected source for {label}')
+              s = s.replace(old, new, 1)
+
+          rep(
+              'const w = MOBILE_DEVICE ? 2400 : 2400, q = MOBILE_DEVICE ? 88 : 88;',
+              'const w = MOBILE_DEVICE ? 3200 : 2400, q = MOBILE_DEVICE ? 92 : 88;',
+              'higher mobile source fidelity')
+
+          rep(
+              '  body:not(.dev-mode) #devToggle, body:not(.dev-mode) #devPanel { display:none !important; }',
+              '  body:not(.dev-mode) #devPanel .dev-sep { display:none; }',
+              'public settings visibility')
+
+          rep(
+              '    #overlayFx::before { filter:blur(14px); opacity:.055; }\n    #overlayFx::after { filter:blur(18px); opacity:.035; }\n    body.fx-lite #overlayFx::before { filter:blur(10px); opacity:.035; }',
+              '    #overlayFx::before { filter:blur(6px); opacity:.032; }\n    #overlayFx::after { filter:blur(10px); opacity:.020; }\n    body.fx-lite #overlayFx::before { filter:blur(4px); opacity:.020; }',
+              'less mobile haze')
+
+          rep(
+              '      atmos: [fog + flow * 0.055, w.particles * (1 + flow * 0.35), w.glow * (1 + flow * 0.30), w.drift * (1 + flow * 1.65)],',
+              '      atmos: [fog * (MOBILE_DEVICE ? 0.62 : 1) + flow * 0.035, w.particles * (1 + flow * 0.28), w.glow * (1 + flow * 0.22), w.drift * (1 + flow * 1.35)],',
+              'reduce mobile shader fog')
+
+          rep(
+              '    const flow = (typeof FlowMode !== "undefined" && FlowMode.active) ? 1 : 0;',
+              '    const audioFlow = (typeof AudioReact !== "undefined" && AudioReact.active) ? AudioReact.level * 0.80 : 0;\n    const flow = (typeof FlowMode !== "undefined" && FlowMode.active) ? 1 : audioFlow;',
+              'audio driven visual energy')
+
+          rep(
+              'Renderer.dprCap = mobile ? 2.0 : 1.75;',
+              'Renderer.dprCap = mobile ? 2.5 : 1.75;',
+              '2.5x mobile renderer')
+
+          rep(
+              '      } else if (Renderer.dprCap > 1.5) {\n        Renderer.dprCap = Math.max(1.5, Renderer.dprCap - 0.25);',
+              '      } else if (Renderer.dprCap > 2.0) {\n        Renderer.dprCap = Math.max(2.0, Renderer.dprCap - 0.25);',
+              '2x mobile adaptive floor')
+
+          audio = r'''
+const AudioReact = {
+  active: false,
+  ctx: null,
+  analyser: null,
+  stream: null,
+  data: null,
+  level: 0,
+  button: null,
+
+  async toggle() {
+    if (this.active) { this.stop(); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      this.setLabel("MIC UNAVAILABLE");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        video: false
+      });
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) { stream.getTracks().forEach(t => t.stop()); this.setLabel("AUDIO UNSUPPORTED"); return; }
+      const ctx = new AC();
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.72;
+      source.connect(analyser);
+      this.stream = stream;
+      this.ctx = ctx;
+      this.analyser = analyser;
+      this.data = new Uint8Array(analyser.frequencyBinCount);
+      this.active = true;
+      this.level = 0;
+      this.setLabel("MIC REACT · ON");
+      if (this.button) this.button.classList.add("active");
+    } catch (err) {
+      console.warn("VIEW: microphone audio-react unavailable", err);
+      this.setLabel("MIC PERMISSION");
+    }
+  },
+
+  stop() {
+    this.active = false;
+    this.level = 0;
+    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+    if (this.ctx) { try { this.ctx.close(); } catch (e) {} }
+    this.stream = null; this.ctx = null; this.analyser = null; this.data = null;
+    this.setLabel("MIC REACT");
+    if (this.button) this.button.classList.remove("active");
+  },
+
+  step() {
+    if (!this.active || !this.analyser || !this.data) {
+      this.level *= 0.86;
+      return;
+    }
+    this.analyser.getByteFrequencyData(this.data);
+    const bassBins = Math.max(8, Math.floor(this.data.length * 0.18));
+    let bass = 0, all = 0;
+    for (let i = 0; i < this.data.length; i++) {
+      const v = this.data[i] / 255;
+      all += v;
+      if (i < bassBins) bass += v;
+    }
+    bass /= bassBins;
+    all /= this.data.length;
+    const target = Math.max(0, Math.min(1, bass * 1.25 + all * 0.65 - 0.10));
+    this.level = this.level * 0.78 + target * 0.22;
+  },
+
+  setLabel(text) {
+    if (this.button) this.button.textContent = text;
+  },
+
+  mount(panel) {
+    const firstSep = panel.querySelector(".dev-sep");
+    const row = document.createElement("div");
+    row.className = "dev-row public-audio-row";
+    row.innerHTML = '<label>Audio sync</label><div class="dev-buttons"><button class="dev-btn" id="audioReactBtn">MIC REACT</button></div>';
+    panel.insertBefore(row, firstSep);
+    this.button = row.querySelector("#audioReactBtn");
+    this.button.addEventListener("click", e => { e.stopPropagation(); this.toggle(); });
+  }
+};
+
+'''
+          rep(
+              '/* ---------------------------------------------------------------------------\n   BOOT + MAIN LOOP\n--------------------------------------------------------------------------- */\n',
+              audio + '/* ---------------------------------------------------------------------------\n   BOOT + MAIN LOOP\n--------------------------------------------------------------------------- */\n',
+              'audio react controller')
+
+          rep(
+              'const DEV_MODE = /[?&]dev=1(?:&|$)/.test(location.search);\nif (DEV_MODE) document.body.classList.add("dev-mode");',
+              'const DEV_MODE = /[?&]dev=1(?:&|$)/.test(location.search);\nif (DEV_MODE) document.body.classList.add("dev-mode");\nconst devToggleEl = document.getElementById("devToggle");\nconst devPanelEl = document.getElementById("devPanel");\nif (!DEV_MODE) {\n  devToggleEl.textContent = "SET";\n  devToggleEl.setAttribute("aria-label", "Toggle settings");\n  const title = devPanelEl.querySelector(".dev-title");\n  if (title) title.textContent = "VIEW // SETTINGS";\n}\nAudioReact.mount(devPanelEl);',
+              'public settings mount')
+
+          rep(
+              '  Engine.step(dtReal);\n  FlowMode.step();',
+              '  AudioReact.step();\n  Engine.step(dtReal);\n  FlowMode.step();',
+              'audio react frame update')
+
+          p.write_text(s)
+          Path('.github/workflows/view-crisp-audio.yml').unlink()
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html .github/workflows/view-crisp-audio.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: sharpen VIEW and add public audio-react settings"
+          git push origin HEAD:fix/view-crisp-audio-settings
